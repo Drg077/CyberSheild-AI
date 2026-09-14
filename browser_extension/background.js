@@ -1,17 +1,26 @@
 /**
  * CyberShield AI - Background Service Worker (Manifest V3)
- * Monitors tab navigation and queries the centralized threat prediction backend.
+ * Monitors tab navigation events and queries the centralized threat prediction backend.
  */
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  // Only check once page begins loading with a valid HTTP/HTTPS URL
-  if (changeInfo.status === "loading" && tab.url && tab.url.startsWith("http")) {
-    // Ignore localhost/internal
-    if (tab.url.includes("localhost:8000") || tab.url.includes("127.0.0.1:8000")) {
-      return;
+// 1. Listen for pre-navigation events where available
+if (chrome.webNavigation && chrome.webNavigation.onBeforeNavigate) {
+  chrome.webNavigation.onBeforeNavigate.addListener((details) => {
+    // Only intercept top-level frame navigations
+    if (details.frameId === 0 && details.url && details.url.startsWith("http")) {
+      if (!details.url.includes("localhost:8000") && !details.url.includes("127.0.0.1:8000")) {
+        checkUrlThreat(details.tabId, details.url);
+      }
     }
+  });
+}
 
-    checkUrlThreat(tabId, tab.url);
+// 2. Also listen for tab updates during loading state as fallback
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === "loading" && tab.url && tab.url.startsWith("http")) {
+    if (!tab.url.includes("localhost:8000") && !tab.url.includes("127.0.0.1:8000")) {
+      checkUrlThreat(tabId, tab.url);
+    }
   }
 });
 
@@ -27,18 +36,23 @@ async function checkUrlThreat(tabId, url) {
 
     const data = await response.json();
 
-    // If High or Critical risk, send message to content script to display warning
+    // Cache latest result in storage for popup
+    if (chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ [url]: data });
+    }
+
+    // If High or Critical risk, send message to content script to display warning banner
     if (data.severity === "High" || data.severity === "Critical") {
       chrome.tabs.sendMessage(tabId, {
         action: "CYBERSHIELD_THREAT_DETECTED",
         threat: data
       }, (resp) => {
-        // Suppress errors if content script not yet ready
-        if (chrome.runtime.lastError) {}
+        if (chrome.runtime.lastError) {
+          // Suppress error if content script is still initializing
+        }
       });
     }
   } catch (err) {
-    // Backend offline or unreachable
     console.debug("CyberShield backend offline:", err);
   }
 }

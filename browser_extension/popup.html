@@ -42,7 +42,7 @@
     }
     .current-url-box {
       background: var(--card);
-      padding: 10px;
+      padding: 12px;
       border-radius: 8px;
       margin-bottom: 12px;
     }
@@ -51,16 +51,16 @@
       font-size: 11px;
       color: var(--muted);
       word-break: break-all;
-      max-height: 40px;
+      max-height: 45px;
       overflow-y: auto;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
     .scan-btn {
       width: 100%;
       background: linear-gradient(135deg, #0284c7, #38bdf8);
       color: white;
       border: none;
-      padding: 8px 12px;
+      padding: 9px 12px;
       border-radius: 6px;
       font-weight: 600;
       cursor: pointer;
@@ -70,7 +70,7 @@
       display: none;
       background: var(--card);
       border-radius: 8px;
-      padding: 12px;
+      padding: 14px;
       margin-top: 12px;
       border: 1px solid #334155;
     }
@@ -81,12 +81,12 @@
       margin-bottom: 10px;
     }
     .score-badge {
-      font-size: 18px;
+      font-size: 20px;
       font-weight: 800;
       font-family: monospace;
     }
     .pill {
-      padding: 4px 8px;
+      padding: 4px 10px;
       border-radius: 12px;
       font-weight: 700;
       font-size: 11px;
@@ -109,14 +109,41 @@
     .recommendation {
       font-size: 11px;
       color: #cbd5e1;
-      padding-top: 6px;
+      padding-top: 8px;
       border-top: 1px solid #334155;
       margin-top: 8px;
+      line-height: 1.4;
+    }
+    .action-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .btn-leave {
+      flex: 1;
+      background: #ef4444;
+      color: white;
+      border: none;
+      padding: 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-dismiss {
+      flex: 1;
+      background: #334155;
+      color: white;
+      border: none;
+      padding: 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
     }
     .dashboard-link {
       display: block;
       text-align: center;
-      margin-top: 12px;
+      margin-top: 14px;
       color: var(--primary);
       text-decoration: none;
       font-size: 11px;
@@ -134,9 +161,9 @@
   </div>
 
   <div class="current-url-box">
-    <div style="font-size: 11px; font-weight: 600; margin-bottom: 4px;">Active Page URL:</div>
+    <div style="font-size: 11px; font-weight: 600; margin-bottom: 4px;">Target URL / Active Tab:</div>
     <div id="activeUrl" class="url-text">Loading current tab...</div>
-    <button id="scanBtn" class="scan-btn">Scan Active Tab</button>
+    <button id="scanBtn" class="scan-btn">Scan URL with AI</button>
   </div>
 
   <div id="resultBox" class="result-box">
@@ -151,6 +178,10 @@
     <div style="font-size: 11px; color: var(--muted); margin-bottom: 4px;">Explainable AI Analysis:</div>
     <ul id="reasonsList" class="reasons-list"></ul>
     <div id="recommendation" class="recommendation"></div>
+    <div id="actionButtonGroup" class="action-buttons" style="display:none;">
+      <button id="leavePageBtn" class="btn-leave">Leave Site Safely</button>
+      <button id="dismissBtn" class="btn-dismiss">Proceed Anyway</button>
+    </div>
   </div>
 
   <a href="http://localhost:8000" target="_blank" class="dashboard-link">Open Full Web Dashboard &rarr;</a>

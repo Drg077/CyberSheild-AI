@@ -7,14 +7,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   const threatTitle = document.getElementById("threatTitle");
   const reasonsList = document.getElementById("reasonsList");
   const recommendation = document.getElementById("recommendation");
+  const actionButtonGroup = document.getElementById("actionButtonGroup");
+  const leavePageBtn = document.getElementById("leavePageBtn");
+  const dismissBtn = document.getElementById("dismissBtn");
 
   let currentTabUrl = "";
+  let activeTabId = null;
 
-  // Query active tab URL
-  if (chrome && chrome.tabs && chrome.tabs.query) {
+  if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.query) {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs && tabs[0] && tabs[0].url) {
         currentTabUrl = tabs[0].url;
+        activeTabId = tabs[0].id;
         activeUrlDiv.textContent = currentTabUrl;
       } else {
         activeUrlDiv.textContent = "Unable to read active tab URL.";
@@ -54,11 +58,29 @@ document.addEventListener("DOMContentLoaded", async () => {
       threatTitle.textContent = data.title;
       reasonsList.innerHTML = data.reasons.slice(0, 3).map(r => `<li>${r}</li>`).join("");
       recommendation.innerHTML = `<strong>Action:</strong> ${data.recommendation}`;
+
+      if (data.severity === "High" || data.severity === "Critical") {
+        actionButtonGroup.style.display = "flex";
+      } else {
+        actionButtonGroup.style.display = "none";
+      }
     } catch (err) {
       alert("Failed to connect to CyberShield AI API at http://localhost:8000. Ensure the backend is running.");
     } finally {
-      scanBtn.textContent = "Scan Active Tab";
+      scanBtn.textContent = "Scan URL with AI";
       scanBtn.disabled = false;
     }
+  });
+
+  leavePageBtn.addEventListener("click", () => {
+    if (typeof chrome !== "undefined" && chrome.tabs && activeTabId) {
+      chrome.tabs.update(activeTabId, { url: "about:blank" });
+    } else {
+      window.location.href = "about:blank";
+    }
+  });
+
+  dismissBtn.addEventListener("click", () => {
+    resultBox.style.display = "none";
   });
 });

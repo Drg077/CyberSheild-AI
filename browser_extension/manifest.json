@@ -6,7 +6,8 @@
   "permissions": [
     "activeTab",
     "storage",
-    "tabs"
+    "tabs",
+    "webNavigation"
   ],
   "host_permissions": [
     "http://localhost:8000/*",

@@ -41,22 +41,57 @@ def test_pe_contract_missing_column_fails_safely():
         PEFeatureContract.validate_and_align(df_bad)
     assert "PE Feature Contract Mismatch" in str(excinfo.value)
 
+def test_url_contract_nan_and_inf_fail_safely():
+    """Verify contract validator rejects NaN and Infinite values instead of silently masking."""
+    clean_sample = extract_url_features_df(["https://example.com"])
+    
+    # Test NaN rejection
+    nan_df = clean_sample.copy()
+    nan_df.loc[0, "URLLength"] = np.nan
+    with pytest.raises(FeatureContractValidationError) as excinfo:
+        URLFeatureContract.validate_and_align(nan_df)
+    assert "contains NaN or non-numeric" in str(excinfo.value)
+    
+    # Test Inf rejection
+    inf_df = clean_sample.copy()
+    inf_df.loc[0, "Entropy"] = np.inf
+    with pytest.raises(FeatureContractValidationError) as excinfo:
+        URLFeatureContract.validate_and_align(inf_df)
+    assert "contains infinite values" in str(excinfo.value)
+
+def test_pe_contract_nan_and_inf_fail_safely():
+    """Verify PE contract validator rejects NaN and Infinite values."""
+    from backend.config import settings
+    sample = pd.read_csv(settings.DATA_DIR / "processed" / "malware" / "X_test.csv", nrows=1)
+    
+    nan_df = sample.copy()
+    nan_df.loc[0, "ImageBase"] = np.nan
+    with pytest.raises(FeatureContractValidationError) as excinfo:
+        PEFeatureContract.validate_and_align(nan_df)
+    assert "contains NaN or non-numeric" in str(excinfo.value)
+
+def test_strict_mode_rejects_extra_columns():
+    """Verify strict mode rejects unexpected extra columns."""
+    clean_sample = extract_url_features_df(["https://example.com"])
+    extra_df = clean_sample.copy()
+    extra_df["UNEXPECTED_COLUMN"] = 999.0
+    with pytest.raises(FeatureContractValidationError) as excinfo:
+        URLFeatureContract.validate_and_align(extra_df, strict=True)
+    assert "Unexpected extra features" in str(excinfo.value)
+
 def test_url_extraction_various_samples():
     """Test feature extraction across standard, IP, and suspicious URLs."""
-    # Legitimate-style URL
     f1 = extract_url_features_dict("https://www.google.com/search?q=cybersecurity")
     assert f1["URLLength"] > 0
     assert f1["IsHTTPS"] == 1.0
     assert f1["IsDomainIP"] == 0.0
     assert f1["NoOfQMarkInURL"] == 1.0
     
-    # Suspicious IP URL with banking keywords
     f2 = extract_url_features_dict("http://192.168.1.100/secure-banking/login.php?update=now")
     assert f2["IsDomainIP"] == 1.0
     assert f2["IsHTTPS"] == 0.0
     assert f2["ContainsSuspiciousKeyword"] == 1.0
     
-    # Empty input handling
     f3 = extract_url_features_dict("")
     assert f3["URLLength"] == 0.0
 

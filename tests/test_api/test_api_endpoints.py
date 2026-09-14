@@ -2,8 +2,6 @@ import pytest
 from pathlib import Path
 from fastapi.testclient import TestClient
 from backend.main import app
-from database.db_session import SessionLocal
-from database.models import ThreatAnalysisRecord
 
 client = TestClient(app)
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures"
@@ -52,13 +50,26 @@ def test_analyze_phishing_url():
     assert len(data["top_features"]) == 5
 
 def test_analyze_url_empty_validation():
-    """Verify validation error when URL is empty."""
-    response = client.post("/api/v1/analyze/url", json={"url": ""})
-    assert response.status_code == 422
+    """Verify validation error when URL is empty or whitespace."""
+    response = client.post("/api/v1/analyze/url", json={"url": "   "})
+    assert response.status_code in [400, 422]
+
+def test_analyze_url_oversized_validation():
+    """Verify validation error when URL exceeds maximum allowed limit."""
+    oversized_url = "https://bank.com/" + "a" * 3000
+    response = client.post("/api/v1/analyze/url", json={"url": oversized_url})
+    assert response.status_code in [400, 422]
+
+def test_analyze_unusual_punycode_url():
+    """Verify handling of unusual punycode homograph attack URL."""
+    puny_url = "https://xn--e1afmkfd.xn--80akhbyknj4f"
+    response = client.post("/api/v1/analyze/url", json={"url": puny_url})
+    assert response.status_code == 200
+    data = response.json()
+    assert 0.0 <= data["risk_score"] <= 100.0
 
 def test_history_endpoints():
     """Verify prediction records are recorded in database and retrievable via GET /api/v1/history."""
-    # Run a test scan to ensure history exists
     client.post("/api/v1/analyze/url", json={"url": "https://www.chase.com"})
     
     response = client.get("/api/v1/history?limit=10")
@@ -68,7 +79,6 @@ def test_history_endpoints():
     assert "target" in items[0]
     assert "risk_score" in items[0]
     
-    # Test detail lookup
     rec_id = items[0]["id"]
     detail_res = client.get(f"/api/v1/history/{rec_id}")
     assert detail_res.status_code == 200
@@ -81,6 +91,13 @@ def test_file_upload_unsupported_format():
     assert response.status_code == 400
     assert "Unsupported file format" in response.json()["detail"]
 
+def test_file_upload_empty_file():
+    """Verify safe rejection when uploaded file is 0 bytes."""
+    files = {"file": ("empty.exe", b"", "application/octet-stream")}
+    response = client.post("/api/v1/analyze/file", files=files)
+    assert response.status_code == 400
+    assert "not a valid PE" in response.json()["detail"]
+
 def test_file_upload_corrupt_binary():
     """Verify safe error response for corrupt binary."""
     files = {"file": ("corrupt.exe", b"NOT_A_PE_HEADER" * 20, "application/octet-stream")}
@@ -88,21 +105,39 @@ def test_file_upload_corrupt_binary():
     assert response.status_code == 400
     assert "not a valid PE" in response.json()["detail"]
 
-def test_file_upload_valid_pe():
-    """Verify static analysis on valid test PE binary."""
-    pe_file = FIXTURES_DIR / "sample_benign.exe"
+def test_file_upload_valid_benign_pe():
+    """Verify static analysis on valid real benign PE binary."""
+    pe_file = FIXTURES_DIR / "real_benign_sample.exe"
     assert pe_file.exists()
     
     with open(pe_file, "rb") as f:
-        files = {"file": ("sample_benign.exe", f, "application/x-msdownload")}
+        files = {"file": ("real_benign_sample.exe", f, "application/x-msdownload")}
         response = client.post("/api/v1/analyze/file", files=files)
         
     assert response.status_code == 200
     data = response.json()
     assert data["input_type"] == "FILE"
-    assert data["target"] == "sample_benign.exe"
+    assert data["prediction"] == "Benign"
+    assert data["target"] == "real_benign_sample.exe"
     assert data["file_sha256"] is not None
     assert len(data["file_sha256"]) == 64
-    assert 0.0 <= data["risk_score"] <= 100.0
+    assert data["risk_score"] < 40.0
     assert len(data["top_features"]) == 5
     assert len(data["reasons"]) == 5
+
+def test_file_upload_malicious_benchmark_pe():
+    """Verify static analysis on malicious benchmark PE binary."""
+    pe_file = FIXTURES_DIR / "malicious_pe_benchmark.exe"
+    assert pe_file.exists()
+    
+    with open(pe_file, "rb") as f:
+        files = {"file": ("malicious_pe_benchmark.exe", f, "application/x-msdownload")}
+        response = client.post("/api/v1/analyze/file", files=files)
+        
+    assert response.status_code == 200
+    data = response.json()
+    assert data["input_type"] == "FILE"
+    assert data["prediction"] == "Malicious"
+    assert data["target"] == "malicious_pe_benchmark.exe"
+    assert data["risk_score"] >= 70.0
+    assert data["decision"] in ["WARN", "QUARANTINE"]

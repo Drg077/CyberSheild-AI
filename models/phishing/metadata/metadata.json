@@ -27,7 +27,7 @@
     "Entropy",
     "CharContinuationRate"
   ],
-  "scaler": "StandardScaler",
+  "scaler": "none",
   "candidate_comparison": [
     {
       "model_name": "RandomForest",
@@ -97,5 +97,6 @@
     "shap_compatible": true,
     "shap_latency_ms_per_sample": 15.4089,
     "training_time_seconds": 0.3
-  }
+  },
+  "preprocessing": "raw_feature_contract (tree-based Random Forest operates directly on unscaled features for human-interpretable SHAP attributions)"
 }

@@ -1,7 +1,7 @@
 """
 Unified Risk Score Calculation Engine.
 Calculates unified 0-100 risk score based on model evidence and validated contextual indicators.
-Strictly adapts to the input type (URL vs File).
+Strictly uses input-specific configurations (URL vs File).
 """
 from dataclasses import dataclass
 from typing import Dict, Any, Optional
@@ -34,7 +34,7 @@ def compute_url_context(features: Dict[str, float]) -> float:
         ctx += 0.20
     if features.get("IsHTTPS", 1.0) == 0.0:
         ctx += 0.10
-    return min(1.0, ctx)
+    return round(min(1.0, ctx), 4)
 
 def compute_pe_context(features: Dict[str, float]) -> float:
     """
@@ -52,32 +52,33 @@ def compute_pe_context(features: Dict[str, float]) -> float:
         ctx += 0.30
     if features.get("SizeOfCode", 1.0) == 0.0:
         ctx += 0.30
-    return min(1.0, ctx)
+    return round(min(1.0, ctx), 4)
 
 class RiskAnalysisEngine:
     def __init__(
         self,
-        weight_model: float = 0.85,
-        weight_context: float = 0.15
+        weight_phishing: float = 0.85,
+        weight_phishing_context: float = 0.15,
+        weight_malware: float = 0.85,
+        weight_malware_context: float = 0.15
     ):
-        # Normalize weights
-        total = weight_model + weight_context
-        self.w_model = weight_model / total
-        self.w_context = weight_context / total
+        total_url = weight_phishing + weight_phishing_context
+        self.w_url_model = weight_phishing / total_url
+        self.w_url_context = weight_phishing_context / total_url
+        
+        total_file = weight_malware + weight_malware_context
+        self.w_file_model = weight_malware / total_file
+        self.w_file_context = weight_malware_context / total_file
         
     def calculate_url_risk(
         self,
         phishing_probability: float,
         context_score: float = 0.0
     ) -> RiskAssessment:
-        """
-        Calculates unified risk score for URL threat analysis.
-        Formula: 100 * [w_model * P(phishing) + w_context * C(context)]
-        """
         p_clamped = max(0.0, min(1.0, float(phishing_probability)))
         c_clamped = max(0.0, min(1.0, float(context_score)))
         
-        raw_score = 100.0 * (self.w_model * p_clamped + self.w_context * c_clamped)
+        raw_score = 100.0 * (self.w_url_model * p_clamped + self.w_url_context * c_clamped)
         risk_score = round(max(0.0, min(100.0, raw_score)), 1)
         severity = ThresholdConfig.get_severity(risk_score)
         
@@ -87,7 +88,7 @@ class RiskAnalysisEngine:
             severity=severity,
             model_probability=round(p_clamped, 4),
             context_score=round(c_clamped, 4),
-            weights={"model": round(self.w_model, 4), "context": round(self.w_context, 4)}
+            weights={"model": round(self.w_url_model, 4), "context": round(self.w_url_context, 4)}
         )
         
     def calculate_file_risk(
@@ -95,14 +96,10 @@ class RiskAnalysisEngine:
         malware_probability: float,
         context_score: float = 0.0
     ) -> RiskAssessment:
-        """
-        Calculates unified risk score for Static PE malware threat analysis.
-        Formula: 100 * [w_model * P(malware) + w_context * C(context)]
-        """
         p_clamped = max(0.0, min(1.0, float(malware_probability)))
         c_clamped = max(0.0, min(1.0, float(context_score)))
         
-        raw_score = 100.0 * (self.w_model * p_clamped + self.w_context * c_clamped)
+        raw_score = 100.0 * (self.w_file_model * p_clamped + self.w_file_context * c_clamped)
         risk_score = round(max(0.0, min(100.0, raw_score)), 1)
         severity = ThresholdConfig.get_severity(risk_score)
         
@@ -112,11 +109,12 @@ class RiskAnalysisEngine:
             severity=severity,
             model_probability=round(p_clamped, 4),
             context_score=round(c_clamped, 4),
-            weights={"model": round(self.w_model, 4), "context": round(self.w_context, 4)}
+            weights={"model": round(self.w_file_model, 4), "context": round(self.w_file_context, 4)}
         )
 
-# Global default instance
 risk_engine = RiskAnalysisEngine(
-    weight_model=settings.WEIGHT_PHISHING,
-    weight_context=settings.WEIGHT_PHISHING_CONTEXT
+    weight_phishing=settings.WEIGHT_PHISHING,
+    weight_phishing_context=settings.WEIGHT_PHISHING_CONTEXT,
+    weight_malware=settings.WEIGHT_MALWARE,
+    weight_malware_context=settings.WEIGHT_MALWARE_CONTEXT
 )
