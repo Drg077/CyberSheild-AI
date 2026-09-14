@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "CyberShield AI - Banking Protection",
+  "version": "1.0.0",
+  "description": "Real-time AI threat detection protecting digital banking users from phishing URLs with explainable machine learning.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*",
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "CyberShield AI Threat Scanner"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_start"
+    }
+  ]
+}

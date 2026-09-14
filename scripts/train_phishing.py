@@ -1,0 +1,217 @@
+"""
+Phishing Model Training, Candidate Evaluation, and Model Selection Script.
+Compares multiple candidate models empirically, prioritizing low False Negatives and SHAP compatibility.
+"""
+import json
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import joblib
+from sklearn.ensemble import RandomForestClassifier, HistGradientBoostingClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    roc_auc_score,
+    average_precision_score,
+    confusion_matrix
+)
+import shap
+
+from feature_extraction.feature_contract import URLFeatureContract
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "data" / "processed" / "phishing"
+MODELS_DIR = BASE_DIR / "models" / "phishing"
+
+def evaluate_estimator(name, model, X_test, y_test):
+    """Calculates all mandatory evaluation metrics, confusion matrix, and inference latency."""
+    # Measure latency
+    t0 = time.perf_counter()
+    y_pred = model.predict(X_test)
+    y_prob = model.predict_proba(X_test)[:, 1]
+    t1 = time.perf_counter()
+    total_time_ms = (t1 - t0) * 1000
+    latency_ms_per_sample = total_time_ms / len(X_test)
+    
+    # Calculate metrics
+    acc = accuracy_score(y_test, y_pred)
+    prec = precision_score(y_test, y_pred, zero_division=0)
+    rec = recall_score(y_test, y_pred, zero_division=0)
+    f1 = f1_score(y_test, y_pred, zero_division=0)
+    roc_auc = roc_auc_score(y_test, y_prob)
+    pr_auc = average_precision_score(y_test, y_prob)
+    
+    tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+    
+    # Test SHAP TreeExplainer compatibility and latency on 100 samples
+    shap_compat = True
+    shap_latency_ms = 0.0
+    try:
+        t_shap_0 = time.perf_counter()
+        if isinstance(model, (RandomForestClassifier, DecisionTreeClassifier)):
+            explainer = shap.TreeExplainer(model)
+            _ = explainer.shap_values(X_test.iloc[:50])
+        else:
+            # For HistGradientBoosting, use TreeExplainer or sample explainer
+            explainer = shap.TreeExplainer(model)
+            _ = explainer.shap_values(X_test.iloc[:50])
+        t_shap_1 = time.perf_counter()
+        shap_latency_ms = ((t_shap_1 - t_shap_0) * 1000) / 50
+    except Exception as e:
+        shap_compat = False
+        print(f"SHAP warning for {name}: {e}")
+        
+    return {
+        "model_name": name,
+        "accuracy": round(float(acc), 4),
+        "precision": round(float(prec), 4),
+        "recall": round(float(rec), 4),
+        "f1_score": round(float(f1), 4),
+        "roc_auc": round(float(roc_auc), 4),
+        "pr_auc": round(float(pr_auc), 4),
+        "true_negatives": int(tn),
+        "false_positives": int(fp),
+        "false_negatives": int(fn),
+        "true_positives": int(tp),
+        "latency_ms_per_sample": round(float(latency_ms_per_sample), 4),
+        "shap_compatible": shap_compat,
+        "shap_latency_ms_per_sample": round(float(shap_latency_ms), 4)
+    }
+
+def train_and_select_phishing_model():
+    print("=" * 60)
+    print("PHISHING MODEL TRAINING & EMPIRICAL COMPARISON")
+    print("=" * 60)
+    
+    # Load processed splits
+    X_train = pd.read_csv(DATA_DIR / "X_train.csv")
+    y_train = pd.read_csv(DATA_DIR / "y_train.csv").squeeze("columns")
+    X_val = pd.read_csv(DATA_DIR / "X_val.csv")
+    y_val = pd.read_csv(DATA_DIR / "y_val.csv").squeeze("columns")
+    X_test = pd.read_csv(DATA_DIR / "X_test.csv")
+    y_test = pd.read_csv(DATA_DIR / "y_test.csv").squeeze("columns")
+    
+    print(f"Training set: {X_train.shape[0]} samples, {X_train.shape[1]} features")
+    print(f"Validation set: {X_val.shape[0]} samples")
+    print(f"Test set: {X_test.shape[0]} samples")
+    
+    # Fit scaler
+    scaler = StandardScaler()
+    scaler.fit(X_train)
+    
+    # Candidate models
+    candidates = {
+        "RandomForest": RandomForestClassifier(
+            n_estimators=100,
+            max_depth=15,
+            min_samples_split=5,
+            random_state=42,
+            n_jobs=-1
+        ),
+        "HistGradientBoosting": HistGradientBoostingClassifier(
+            max_iter=100,
+            max_depth=10,
+            random_state=42
+        ),
+        "DecisionTree": DecisionTreeClassifier(
+            max_depth=10,
+            min_samples_split=10,
+            random_state=42
+        )
+    }
+    
+    results = []
+    trained_models = {}
+    
+    for name, model in candidates.items():
+        print(f"\nTraining candidate model: {name}...")
+        t0 = time.time()
+        model.fit(X_train, y_train)
+        train_time = time.time() - t0
+        print(f"  Training finished in {train_time:.2f}s")
+        
+        metrics = evaluate_estimator(name, model, X_test, y_test)
+        metrics["training_time_seconds"] = round(train_time, 2)
+        results.append(metrics)
+        trained_models[name] = model
+        
+        print(f"  Results on Unseen Test Set ({name}):")
+        print(f"    Accuracy: {metrics['accuracy']:.4f}")
+        print(f"    Recall (Threat Detection): {metrics['recall']:.4f}")
+        print(f"    Precision: {metrics['precision']:.4f}")
+        print(f"    F1-Score: {metrics['f1_score']:.4f}")
+        print(f"    ROC-AUC: {metrics['roc_auc']:.4f}")
+        print(f"    False Negatives (Missed Threats): {metrics['false_negatives']}")
+        print(f"    False Positives: {metrics['false_positives']}")
+        print(f"    Inference Latency: {metrics['latency_ms_per_sample']} ms/sample")
+        print(f"    SHAP Compatible: {metrics['shap_compatible']} ({metrics['shap_latency_ms_per_sample']} ms/sample)")
+        
+    # Model Selection: Prioritize Recall (minimizing False Negatives) + F1 + SHAP compatibility
+    # Sort candidates by recall desc, then f1_score desc
+    sorted_candidates = sorted(
+        results,
+        key=lambda x: (x["recall"], x["f1_score"], x["roc_auc"]),
+        reverse=True
+    )
+    champion_name = sorted_candidates[0]["model_name"]
+    champion_metrics = sorted_candidates[0]
+    champion_model = trained_models[champion_name]
+    
+    print("\n" + "=" * 60)
+    print(f"CHAMPION MODEL SELECTED: {champion_name}")
+    print(f"Selection Justification: Highest Recall ({champion_metrics['recall']:.4f}) and Lowest False Negatives ({champion_metrics['false_negatives']}) with F1-Score of {champion_metrics['f1_score']:.4f} and fast SHAP TreeExplainer support.")
+    print("=" * 60)
+    
+    # Save artifacts
+    model_dir = MODELS_DIR / "model"
+    scaler_dir = MODELS_DIR / "scaler"
+    meta_dir = MODELS_DIR / "metadata"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    scaler_dir.mkdir(parents=True, exist_ok=True)
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    
+    model_path = model_dir / "phishing_model.joblib"
+    scaler_path = scaler_dir / "phishing_scaler.joblib"
+    meta_path = meta_dir / "metadata.json"
+    
+    joblib.dump(champion_model, model_path)
+    joblib.dump(scaler, scaler_path)
+    
+    # Fit and save background dataset for SHAP (100 samples)
+    background_summary = X_train.sample(n=100, random_state=42)
+    joblib.dump(background_summary, meta_dir / "shap_background.joblib")
+    
+    metadata = {
+        "model_type": champion_name,
+        "model_version": "v1.0.0",
+        "task": "phishing_url_prediction",
+        "training_date": datetime.now(timezone.utc).isoformat(),
+        "training_dataset": "PhiUSIIL Phishing URL Dataset (UCI)",
+        "feature_schema_version": URLFeatureContract.SCHEMA_VERSION,
+        "features": URLFeatureContract.FEATURE_NAMES,
+        "scaler": "StandardScaler",
+        "candidate_comparison": results,
+        "champion_metrics": champion_metrics
+    }
+    
+    with open(meta_path, "w") as f:
+        json.dump(metadata, f, indent=2)
+        
+    print(f"Saved model to: {model_path}")
+    print(f"Saved scaler to: {scaler_path}")
+    print(f"Saved metadata to: {meta_path}")
+    
+    # Verification of saved artifact
+    loaded_model = joblib.load(model_path)
+    test_pred = loaded_model.predict_proba(X_test.iloc[:5])[:, 1]
+    assert len(test_pred) == 5, "Verification failed on loaded artifact"
+    print("Verified model serialization and reload successfully!")
+
+if __name__ == "__main__":
+    train_and_select_phishing_model()

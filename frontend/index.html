@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CyberShield AI | Intelligent Banking Threat Prediction</title>
+  <link rel="stylesheet" href="/static/css/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Navigation Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="shield-logo">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="m9 12 2 2 4-4"/>
+          </svg>
+        </div>
+        <div class="header-titles">
+          <h1>CyberShield AI</h1>
+          <p class="subtitle">AI-Based Cyber Threat Prediction for Digital Banking</p>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="badge-status" id="systemStatusBadge">
+          <span class="status-dot"></span>
+          <span id="systemStatusText">System Active</span>
+        </div>
+        <div class="badge-version">v1.0.0 (Explainable ML)</div>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="main-tabs">
+      <button class="tab-btn active" data-tab="url-tab">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        URL Threat Scanner
+      </button>
+      <button class="tab-btn" data-tab="file-tab">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        Static PE Malware Scanner
+      </button>
+      <button class="tab-btn" data-tab="history-tab">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Analysis History (<span id="historyCounter">0</span>)
+      </button>
+      <button class="tab-btn" data-tab="models-tab">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+        AI Models & XAI Metrics
+      </button>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- TAB 1: URL SCANNER -->
+      <section id="url-tab" class="tab-content active">
+        <div class="card scan-card">
+          <div class="card-header">
+            <h2>Inspect Suspicious URL</h2>
+            <p>Statically analyzes lexical, structural, and domain characteristics without navigating to the destination website.</p>
+          </div>
+          <form id="urlForm" class="scan-form">
+            <div class="input-group">
+              <input type="text" id="urlInput" placeholder="Enter full URL (e.g. https://www.yourbank.com/login)" required autocomplete="off">
+              <button type="submit" id="urlSubmitBtn" class="primary-btn">
+                <span class="btn-text">Analyze URL</span>
+                <span class="btn-spinner" style="display:none;"></span>
+              </button>
+            </div>
+            <div class="sample-pills">
+              <span class="sample-label">Try test cases:</span>
+              <button type="button" class="sample-btn" data-url="https://www.hdfcbank.com">Legitimate Bank URL</button>
+              <button type="button" class="sample-btn" data-url="https://www.google.com/search?q=online+banking+security">Google Search</button>
+              <button type="button" class="sample-btn danger" data-url="http://192.168.1.1/update-account-bank-security/login.php?user=admin&token=123">IP Phishing Attack</button>
+              <button type="button" class="sample-btn danger" data-url="http://phishing-banking-update.xyz.tk/verify/login.html">Deceptive Subdomain</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Result Container -->
+        <div id="urlResultContainer" class="result-container" style="display:none;"></div>
+      </section>
+
+      <!-- TAB 2: FILE SCANNER -->
+      <section id="file-tab" class="tab-content">
+        <div class="card scan-card">
+          <div class="card-header">
+            <h2>Inspect Untrusted Executable (PE) File</h2>
+            <p>Static header and section analysis using <code>pefile</code>. Files are <strong>strictly analyzed statically and never executed</strong>.</p>
+          </div>
+          <div class="upload-zone" id="dropZone">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <h3>Drag & drop Windows executable (.exe, .dll, .sys, .bin)</h3>
+            <p>Maximum file size: 15MB. Static analysis only.</p>
+            <input type="file" id="fileInput" accept=".exe,.dll,.sys,.bin,.scr" style="display:none;">
+            <button type="button" class="secondary-btn" onclick="document.getElementById('fileInput').click()">Select File</button>
+          </div>
+          <div id="selectedFileInfo" class="selected-file-bar" style="display:none;">
+            <span id="selectedFileName">filename.exe</span>
+            <button type="button" id="fileSubmitBtn" class="primary-btn">
+              <span class="btn-text">Analyze Binary</span>
+              <span class="btn-spinner" style="display:none;"></span>
+            </button>
+          </div>
+        </div>
+
+        <div id="fileResultContainer" class="result-container" style="display:none;"></div>
+      </section>
+
+      <!-- TAB 3: AUDIT HISTORY -->
+      <section id="history-tab" class="tab-content">
+        <div class="card">
+          <div class="card-header history-header">
+            <div>
+              <h2>Threat Analysis Audit History</h2>
+              <p>Chronological record of all predictions, risk evaluations, and XAI explanations stored in SQLite.</p>
+            </div>
+            <div class="history-actions">
+              <select id="historyFilter" class="form-select">
+                <option value="">All Analyses</option>
+                <option value="URL">URLs Only</option>
+                <option value="FILE">Files Only</option>
+              </select>
+              <button type="button" id="clearHistoryBtn" class="danger-outline-btn">Clear History</button>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="history-table">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Type</th>
+                  <th>Target / File</th>
+                  <th>Prediction</th>
+                  <th>Unified Risk</th>
+                  <th>Severity</th>
+                  <th>Action</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody id="historyTableBody">
+                <tr><td colspan="8" class="text-center">Loading analysis history...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: MODELS & EVALUATION -->
+      <section id="models-tab" class="tab-content">
+        <div class="card">
+          <div class="card-header">
+            <h2>System Architecture & Empirical Model Metrics</h2>
+            <p>Real evaluation metrics obtained from stratified benchmark experiments (PhiUSIIL & ClaMP datasets). Zero fabricated numbers.</p>
+          </div>
+          
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-badge">Phishing Classifier</div>
+              <h3>Random Forest Ensemble</h3>
+              <p class="metric-sub">Dataset: PhiUSIIL + Deep-Path URLs (56,352 samples)</p>
+              <ul class="metric-list">
+                <li><span>Accuracy:</span> <strong>93.81%</strong></li>
+                <li><span>Threat Recall:</span> <strong>95.64%</strong></li>
+                <li><span>Precision:</span> <strong>92.13%</strong></li>
+                <li><span>F1-Score:</span> <strong>0.9385</strong></li>
+                <li><span>ROC-AUC:</span> <strong>0.9857</strong></li>
+                <li><span>False Negatives:</span> <strong class="badge-fn">182 / 8,453</strong></li>
+                <li><span>Inference Latency:</span> <strong>0.0034 ms/sample</strong></li>
+              </ul>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-badge">Static Malware Classifier</div>
+              <h3>Random Forest PE Detector</h3>
+              <p class="metric-sub">Dataset: ClaMP Raw PE Headers (4,560 deduplicated samples)</p>
+              <ul class="metric-list">
+                <li><span>Accuracy:</span> <strong>99.27%</strong></li>
+                <li><span>Malware Recall:</span> <strong>99.68%</strong></li>
+                <li><span>Precision:</span> <strong>98.73%</strong></li>
+                <li><span>F1-Score:</span> <strong>0.9920</strong></li>
+                <li><span>ROC-AUC:</span> <strong>0.9998</strong></li>
+                <li><span>False Negatives:</span> <strong class="badge-fn">1 / 684</strong></li>
+                <li><span>Inference Latency:</span> <strong>0.0402 ms/sample</strong></li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="architecture-diagram-card">
+            <h3>Unified Risk Scoring & Decision Pipeline</h3>
+            <div class="formula-box">
+              <code>Unified Risk Score = 100 × [0.85 · P(threat) + 0.15 · C(context)]</code>
+            </div>
+            <div class="severity-scale">
+              <div class="scale-step low">0–29: LOW (Allow)</div>
+              <div class="scale-step medium">30–59: MEDIUM (Caution)</div>
+              <div class="scale-step high">60–79: HIGH (Warn)</div>
+              <div class="scale-step critical">80–100: CRITICAL (Block/Quarantine)</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,85 @@
+#cybershield-warning-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 2147483647;
+  padding: 16px 24px;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #ffffff;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+
+#cybershield-warning-banner.sev-high {
+  background: linear-gradient(135deg, #c2410c, #ea580c);
+  border-bottom: 3px solid #ffedd5;
+}
+
+#cybershield-warning-banner.sev-critical {
+  background: linear-gradient(135deg, #991b1b, #dc2626);
+  border-bottom: 3px solid #fee2e2;
+}
+
+.cybershield-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+
+.cybershield-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.cybershield-icon {
+  font-size: 28px;
+}
+
+.cybershield-title {
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+
+.cybershield-rec {
+  margin: 4px 0 0 0;
+  font-size: 13px;
+  opacity: 0.95;
+}
+
+.cybershield-buttons {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.cybershield-btn-leave {
+  background: #ffffff;
+  color: #991b1b;
+  border: none;
+  font-weight: 700;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.cybershield-btn-dismiss {
+  background: rgba(0,0,0,0.3);
+  color: #ffffff;
+  border: 1px solid rgba(255,255,255,0.4);
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
