@@ -11,12 +11,14 @@ class ThreatAnalysisRecord(Base):
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
-    input_type = Column(String(10), nullable=False, index=True) # 'URL' or 'FILE'
-    target = Column(String(1024), nullable=False) # Sanitized URL or Filename
+    input_type = Column(String(10), nullable=False, index=True) # 'URL', 'FILE', 'MESSAGE', or 'DOWNLOAD'
+    target = Column(String(1024), nullable=False) # Sanitized URL, Filename, or Message snippet
     file_sha256 = Column(String(64), nullable=True) # For file analyses
+    download_source_url = Column(String(2048), nullable=True) # For download audit
+    download_url = Column(String(2048), nullable=True) # For download audit
     
     # Prediction & Risk outputs
-    prediction = Column(String(20), nullable=False) # 'Phishing', 'Legitimate', 'Malicious', 'Benign'
+    prediction = Column(String(20), nullable=False) # 'Phishing', 'Legitimate', 'Malicious', 'Benign', 'ai_phishing', 'human_phishing'
     probability = Column(Float, nullable=False) # 0.0 to 1.0
     risk_score = Column(Float, nullable=False) # 0.0 to 100.0
     severity = Column(String(20), nullable=False) # 'Low', 'Medium', 'High', 'Critical'
@@ -27,6 +29,8 @@ class ThreatAnalysisRecord(Base):
     recommendation = Column(Text, nullable=False)
     summary = Column(Text, nullable=False)
     top_features = Column(JSON, nullable=False) # List of SHAP attributions
+    highlighted_spans = Column(JSON, nullable=True) # List of {text, start, end, weight}
+    detector_probabilities = Column(JSON, nullable=True) # Probabilities across all models for audit
     
     # Audit & Model metadata
     model_version = Column(String(20), nullable=False)

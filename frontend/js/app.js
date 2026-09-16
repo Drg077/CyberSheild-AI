@@ -6,9 +6,56 @@ document.addEventListener("DOMContentLoaded", () => {
   initTabs();
   initUrlScanner();
   initFileScanner();
+  initMessageScanner();
   initHistory();
   checkSystemHealth();
 });
+
+// Helper: Escape HTML to avoid XSS vulnerabilities
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+// Helper: Render text with weighted inline <mark> highlights
+function renderHighlightedText(rawText, spans) {
+  if (!rawText) return "";
+  if (!spans || spans.length === 0) {
+    return `<p class="highlighted-text-box">${escapeHtml(rawText)}</p>`;
+  }
+
+  // Sort spans by start index
+  const sortedSpans = [...spans].sort((a, b) => a.start - b.start);
+  let html = "";
+  let cursor = 0;
+
+  for (const span of sortedSpans) {
+    const s = Math.max(cursor, span.start);
+    const e = Math.min(rawText.length, span.end);
+    if (s < e) {
+      // Append preceding unhighlighted text
+      if (s > cursor) {
+        html += escapeHtml(rawText.slice(cursor, s));
+      }
+      const weight = Math.max(0.2, Math.min(1.0, span.weight || 0.8));
+      const opacity = (weight * 0.45).toFixed(2);
+      const spanText = escapeHtml(rawText.slice(s, e));
+      html += `<mark class="threat-span" style="background-color: rgba(239, 68, 68, ${opacity}); border-bottom: 2px solid rgba(239, 68, 68, 0.8); padding: 2px 4px; border-radius: 4px;" title="Threat weight: ${(weight*100).toFixed(0)}%">${spanText}</mark>`;
+      cursor = e;
+    }
+  }
+
+  if (cursor < rawText.length) {
+    html += escapeHtml(rawText.slice(cursor));
+  }
+
+  return `<div class="highlighted-text-box" style="line-height: 1.6; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 6px; font-family: inherit; margin-top: 8px;">${html}</div>`;
+}
 
 // 1. Tab Switching
 function initTabs() {
@@ -52,7 +99,6 @@ function initUrlScanner() {
   const btn = document.getElementById("urlSubmitBtn");
   const resultContainer = document.getElementById("urlResultContainer");
 
-  // Sample Buttons
   document.querySelectorAll(".sample-btn").forEach(btnSample => {
     btnSample.addEventListener("click", () => {
       input.value = btnSample.dataset.url;
@@ -162,7 +208,56 @@ function initFileScanner() {
   });
 }
 
-// 5. Render Threat Assessment Result
+// 5. Message Scanner (GenAI Phishing)
+function initMessageScanner() {
+  const form = document.getElementById("messageForm");
+  const input = document.getElementById("messageInput");
+  const btn = document.getElementById("messageSubmitBtn");
+  const resultContainer = document.getElementById("messageResultContainer");
+
+  document.querySelectorAll(".sample-msg-btn").forEach(btnSample => {
+    btnSample.addEventListener("click", () => {
+      input.value = btnSample.dataset.msg;
+      form.dispatchEvent(new Event("submit"));
+    });
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text || text.length < 10) {
+      alert("Message text must be at least 10 characters long.");
+      return;
+    }
+
+    setLoading(btn, true);
+    resultContainer.style.display = "none";
+
+    try {
+      const response = await fetch("/api/v1/analyze/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text })
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.detail || "Message analysis failed");
+      }
+
+      const result = await response.json();
+      result.rawInputText = text;
+      renderResult(resultContainer, result);
+      updateHistoryBadge();
+    } catch (error) {
+      alert("Message analysis error: " + error.message);
+    } finally {
+      setLoading(btn, false);
+    }
+  });
+}
+
+// 6. Render Threat Assessment Result
 function renderResult(container, data) {
   const sevLower = data.severity.toLowerCase();
   
@@ -176,7 +271,7 @@ function renderResult(container, data) {
     return `
       <div class="shap-bar-item">
         <div class="bar-labels">
-          <span>${feat.feature} = ${feat.value}</span>
+          <span>${escapeHtml(feat.feature)} = ${typeof feat.value === 'number' ? feat.value : escapeHtml(feat.value)}</span>
           <span style="color: ${isRisk ? '#f87171' : '#34d399'}">${isRisk ? '+' : '-'}${impact.toFixed(3)}</span>
         </div>
         <div class="bar-track">
@@ -186,15 +281,28 @@ function renderResult(container, data) {
     `;
   }).join("");
 
-  const reasonsHtml = data.reasons.map(r => `<li>${r}</li>`).join("");
+  const reasonsHtml = data.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join("");
+
+  // Optional highlighted span block for message analyses
+  let spansBlock = "";
+  if (data.input_type === "MESSAGE" && (data.rawInputText || data.target)) {
+    const content = data.rawInputText || data.target;
+    spansBlock = `
+      <div class="card" style="margin-top: 16px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px;">
+        <h4 style="margin-bottom: 8px;">Suspicious Phrase Highlights</h4>
+        <p style="font-size: 0.85rem; color: var(--text-muted);">Inline cues identified by the sequence model as contributing to the threat assessment:</p>
+        ${renderHighlightedText(content, data.highlighted_spans)}
+      </div>
+    `;
+  }
 
   container.innerHTML = `
     <!-- Top Threat Banner -->
     <div class="threat-banner severity-${sevLower}">
       <div class="banner-content">
-        <div class="severity-tag ${sevLower}">${data.severity} Severity</div>
-        <h3 style="margin-top: 8px;">${data.title}</h3>
-        <p class="target-url">${data.target}</p>
+        <div class="severity-tag ${sevLower}">${escapeHtml(data.severity)} Severity</div>
+        <h3 style="margin-top: 8px;">${escapeHtml(data.title)}</h3>
+        <p class="target-url">${escapeHtml(data.target)}</p>
       </div>
       <div class="banner-scores">
         <div class="score-box">
@@ -203,10 +311,13 @@ function renderResult(container, data) {
         </div>
         <div class="score-box">
           <div class="score-value">${(data.probability * 100).toFixed(1)}%</div>
-          <div class="score-label">${data.prediction} Likelihood</div>
+          <div class="score-label">${escapeHtml(data.prediction)} Likelihood</div>
         </div>
       </div>
     </div>
+
+    <!-- Highlighted spans (for messages) -->
+    ${spansBlock}
 
     <!-- Detailed Split Grid -->
     <div class="result-grid">
@@ -214,18 +325,18 @@ function renderResult(container, data) {
       <div class="action-card">
         <h4>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          Security Decision: <span style="color: var(--primary);">${data.decision}</span>
+          Security Decision: <span style="color: var(--primary);">${escapeHtml(data.decision)}</span>
         </h4>
-        <p class="action-recommendation"><strong>Recommendation:</strong> ${data.recommendation}</p>
+        <p class="action-recommendation"><strong>Recommendation:</strong> ${escapeHtml(data.recommendation)}</p>
         <div class="action-disclaimer">
-          <strong>Notice:</strong> ${data.disclaimer}
+          <strong>Notice:</strong> ${escapeHtml(data.disclaimer)}
         </div>
       </div>
 
       <!-- Explainable AI (SHAP) -->
       <div class="shap-card">
         <h4>Explainable AI (SHAP Feature Attribution)</h4>
-        <p class="shap-summary">${data.summary}</p>
+        <p class="shap-summary">${escapeHtml(data.summary)}</p>
         <ul class="shap-reasons-list">
           ${reasonsHtml}
         </ul>
@@ -241,7 +352,7 @@ function renderResult(container, data) {
   container.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-// 6. History Management
+// 7. History Management
 function initHistory() {
   const filter = document.getElementById("historyFilter");
   const clearBtn = document.getElementById("clearHistoryBtn");
@@ -275,21 +386,26 @@ async function loadHistory() {
     tbody.innerHTML = records.map(r => {
       const sev = r.severity.toLowerCase();
       const date = new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const typeIcon = r.input_type === "DOWNLOAD" ? "📥 " : (r.input_type === "FILE" ? "📄 " : (r.input_type === "MESSAGE" ? "✉️ " : "🔗 "));
+      const targetContent = r.input_type === "DOWNLOAD" && r.download_source_url
+        ? `<strong>${escapeHtml(r.target)}</strong><div style="font-size: 0.72rem; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden;" title="${escapeHtml(r.download_source_url)}">from: ${escapeHtml(r.download_source_url)}</div>`
+        : escapeHtml(r.target);
+
       return `
         <tr>
           <td>${date}</td>
-          <td><span class="badge-version">${r.input_type}</span></td>
-          <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${r.target}</td>
-          <td><strong>${r.prediction}</strong> (${(r.probability * 100).toFixed(1)}%)</td>
+          <td><span class="badge-version">${typeIcon}${escapeHtml(r.input_type)}</span></td>
+          <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${targetContent}</td>
+          <td><strong>${escapeHtml(r.prediction)}</strong> (${(r.probability * 100).toFixed(1)}%)</td>
           <td>${r.risk_score} / 100</td>
-          <td><span class="severity-tag ${sev}" style="padding: 2px 8px; font-size: 0.75rem;">${r.severity}</span></td>
-          <td><strong>${r.decision}</strong></td>
-          <td><button class="secondary-btn" style="padding: 4px 10px; font-size: 0.75rem;" onclick="viewHistoryDetail('${r.id}')">Inspect</button></td>
+          <td><span class="severity-tag ${sev}" style="padding: 2px 8px; font-size: 0.75rem;">${escapeHtml(r.severity)}</span></td>
+          <td><strong>${escapeHtml(r.decision)}</strong></td>
+          <td><button class="secondary-btn" style="padding: 4px 10px; font-size: 0.75rem;" onclick="viewHistoryDetail('${escapeHtml(r.id)}')">Inspect</button></td>
         </tr>
       `;
     }).join("");
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="color: #ef4444;">Failed to load history: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="color: #ef4444;">Failed to load history: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -298,13 +414,15 @@ async function viewHistoryDetail(recordId) {
     const res = await fetch(`/api/v1/history/${recordId}`);
     if (res.ok) {
       const data = await res.json();
-      // Switch to URL or file tab and render
       if (data.input_type === "URL") {
         document.querySelector('[data-tab="url-tab"]').click();
         renderResult(document.getElementById("urlResultContainer"), data);
-      } else {
+      } else if (data.input_type === "FILE" || data.input_type === "DOWNLOAD") {
         document.querySelector('[data-tab="file-tab"]').click();
         renderResult(document.getElementById("fileResultContainer"), data);
+      } else {
+        document.querySelector('[data-tab="message-tab"]').click();
+        renderResult(document.getElementById("messageResultContainer"), data);
       }
     }
   } catch (err) {

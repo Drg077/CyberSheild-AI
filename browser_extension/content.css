@@ -17,12 +17,27 @@
   to { transform: translateY(0); }
 }
 
-#cybershield-warning-banner.sev-high {
+#cybershield-warning-banner.sev-low,
+#cybershield-warning-banner.sev-allow {
+  background: linear-gradient(135deg, #065f46, #059669);
+  border-bottom: 3px solid #a7f3d0;
+}
+
+#cybershield-warning-banner.sev-medium,
+#cybershield-warning-banner.sev-caution {
+  background: linear-gradient(135deg, #854d0e, #ca8a04);
+  border-bottom: 3px solid #fef08a;
+}
+
+#cybershield-warning-banner.sev-high,
+#cybershield-warning-banner.sev-warn {
   background: linear-gradient(135deg, #c2410c, #ea580c);
   border-bottom: 3px solid #ffedd5;
 }
 
-#cybershield-warning-banner.sev-critical {
+#cybershield-warning-banner.sev-critical,
+#cybershield-warning-banner.sev-block,
+#cybershield-warning-banner.sev-quarantine {
   background: linear-gradient(135deg, #991b1b, #dc2626);
   border-bottom: 3px solid #fee2e2;
 }
@@ -72,6 +87,24 @@
   border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
+}
+
+.cybershield-btn-scanner {
+  background: #2563eb;
+  color: #ffffff;
+  border: 1px solid rgba(255,255,255,0.4);
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.cybershield-btn-scanner:hover {
+  background: #1d4ed8;
 }
 
 .cybershield-btn-dismiss {

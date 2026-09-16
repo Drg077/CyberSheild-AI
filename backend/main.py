@@ -9,14 +9,16 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
 from backend.config import settings
-from database.db_session import engine, Base
+from database.db_session import init_db
 from backend.api.routes_health import router as health_router
 from backend.api.routes_url import router as url_router
 from backend.api.routes_file import router as file_router
+from backend.api.routes_message import router as message_router
+from backend.api.routes_download import router as download_router
 from backend.api.routes_history import router as history_router
 
-# Ensure tables are created
-Base.metadata.create_all(bind=engine)
+# Initialize tables & migrations
+init_db()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -37,6 +39,8 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(url_router)
 app.include_router(file_router)
+app.include_router(message_router)
+app.include_router(download_router)
 app.include_router(history_router)
 
 # Mount frontend static directory

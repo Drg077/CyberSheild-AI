@@ -1,7 +1,7 @@
 """
 Explanation Formatter for Explainable AI (XAI).
 Translates raw technical feature names and numerical SHAP values into clear,
-human-understandable reasons for digital banking users.
+human-understandable reasons for digital banking users across URLs, PE Binaries, and Messages.
 """
 from typing import List, Dict, Any
 
@@ -60,6 +60,34 @@ PE_FEATURE_DESCRIPTIONS = {
     "NumberOfRvaAndSizes": "Count of data directory entries ({val:.0f})"
 }
 
+# Plain-English descriptions for Message Stylometric features
+MESSAGE_FEATURE_DESCRIPTIONS = {
+    "CharCount": "Total length of message ({val:.0f} characters)",
+    "WordCount": "Total token count ({val:.0f} words)",
+    "SentenceCount": "Number of sentences ({val:.0f} sentences)",
+    "AvgSentenceLength": "Average sentence length ({val:.1f} words/sentence)",
+    "SentenceLengthVariance": "Variance in sentence length structure ({val:.2f})",
+    "LexicalDiversity": "Ratio of unique vocabulary to total words ({val:.1%})",
+    "AvgWordLength": "Average word character length ({val:.1f} characters)",
+    "ImperativeVerbCount": "Frequency of direct imperative commands ({val:.0f})",
+    "ClauseDensity": "Subordinate syntactic clause density per sentence ({val:.2f})",
+    "FirstPersonPronounRatio": "Frequency of first-person self-references ({val:.1%})",
+    "SecondPersonPronounRatio": "Frequency of direct second-person address ({val:.1%})",
+    "ThirdPersonPronounRatio": "Frequency of third-person references ({val:.1%})",
+    "UrgencyWordCount": "Occurrences of coercive urgency words ({val:.0f})",
+    "CredentialRequestCount": "Requests targeting sensitive banking credentials ({val:.0f})",
+    "ExclamationRatio": "Frequency of exclamation marks ({val:.2f}/sentence)",
+    "UppercaseWordRatio": "Proportion of uppercase emphasis words ({val:.1%})",
+    "PunctuationRatio": "Proportion of punctuation symbols ({val:.1%})",
+    "DigitRatio": "Proportion of numeric digits ({val:.1%})",
+    "URLCount": "Embedded web links detected ({val:.0f})",
+    "StopwordRatio": "Proportion of common stopwords ({val:.1%})",
+    "FunctionWordRatio": "Proportion of structural function words ({val:.1%})",
+    "PassiveVoiceCount": "Occurrences of passive voice constructions ({val:.0f})",
+    "ModalVerbCount": "Occurrences of modal obligation auxiliary verbs ({val:.0f})",
+    "GreetingGenericFlag": "Presence of generic impersonal greeting"
+}
+
 class ExplanationFormatter:
     @classmethod
     def format_url_explanation(
@@ -80,7 +108,6 @@ class ExplanationFormatter:
             direction = item["direction"]
             shap_val = item["shap_value"]
             
-            # Look up description template
             template = URL_FEATURE_DESCRIPTIONS.get(feat, f"Technical metric: {feat}")
             try:
                 desc = template.format(val=val)
@@ -98,7 +125,6 @@ class ExplanationFormatter:
                 else:
                     reasons.append(f"• Caution Flag: {desc} (Impact: +{abs(shap_val):.2f})")
                     
-        # Summary statement
         if is_threat:
             summary = (
                 f"The AI model identified this link as likely phishing with {probability*100:.1f}% confidence. "
@@ -163,6 +189,137 @@ class ExplanationFormatter:
                 "Its executable headers, linker characteristics, and section alignment match standard benign Windows binaries."
             )
             
+        return {
+            "summary": summary,
+            "reasons": reasons,
+            "top_features": attributions
+        }
+
+    @classmethod
+    def format_message_explanation(
+        cls,
+        attributions: List[Dict[str, Any]],
+        prediction_label: str,
+        probability: float
+    ) -> Dict[str, Any]:
+        """
+        Translates raw SHAP attributions into customer-friendly reasons for Message / Email threat analysis.
+        """
+        reasons: List[str] = []
+        is_threat = prediction_label.lower() in ["ai_phishing", "human_phishing", "phishing", "malicious"] or probability >= 0.50
+        is_genai = "ai" in prediction_label.lower()
+        
+        for item in attributions:
+            feat = item["feature"]
+            val = item["value"]
+            direction = item["direction"]
+            shap_val = item["shap_value"]
+            
+            template = MESSAGE_FEATURE_DESCRIPTIONS.get(feat, f"Stylometric indicator: {feat}")
+            try:
+                desc = template.format(val=val)
+            except Exception:
+                desc = template
+                
+            if is_threat:
+                if direction == "increases_risk":
+                    reasons.append(f"• Deceptive Pattern Detected: {desc} (Impact: +{abs(shap_val):.2f})")
+                else:
+                    reasons.append(f"• Standard Linguistic Pattern: {desc} (Impact: -{abs(shap_val):.2f})")
+            else:
+                if direction == "decreases_risk":
+                    reasons.append(f"• Normal Banking Communication Style: {desc} (Impact: -{abs(shap_val):.2f})")
+                else:
+                    reasons.append(f"• Minor Anomaly: {desc} (Impact: +{abs(shap_val):.2f})")
+                    
+        if is_threat:
+            threat_type = "GenAI-synthesized phishing" if is_genai else "phishing / social engineering"
+            summary = (
+                f"The AI threat detector identified this message as likely {threat_type} with {probability*100:.1f}% confidence. "
+                "The text exhibits high-urgency keywords, credential solicitation patterns, or stylometric anomalies typical of synthetic lure generation."
+            )
+        else:
+            summary = (
+                f"The AI detector classified this message as likely legitimate ({ (1.0 - probability)*100:.1f}% confidence). "
+                "Its linguistic structure, vocabulary diversity, and syntax match standard formal communications without deceptive credential prompts."
+            )
+            
+        return {
+            "summary": summary,
+            "reasons": reasons,
+            "top_features": attributions
+        }
+
+    @classmethod
+    def format_download_explanation(
+        cls,
+        attributions: List[Dict[str, Any]],
+        prediction_label: str,
+        probability: float,
+        severity_label: str,
+        filename: str,
+        file_extension: str,
+        source_url: str,
+        download_url: str,
+        is_cross_domain: bool = False,
+        extension_risk_tier: float = 0.0
+    ) -> Dict[str, Any]:
+        """
+        Translates raw SHAP attributions and download metadata into clear, customer-friendly explanations
+        combining extension risk profile and URL origin evidence.
+        """
+        reasons: List[str] = []
+        clean_ext = file_extension.strip().lower()
+        if not clean_ext.startswith(".") and clean_ext:
+            clean_ext = "." + clean_ext
+            
+        # 1. Extension risk description
+        if extension_risk_tier >= 2.0:
+            reasons.append(f"• High-Risk Payload Type: '{clean_ext}' is an executable/script binary commonly used for malware delivery.")
+        elif extension_risk_tier >= 1.0:
+            reasons.append(f"• Medium-Risk File Type: '{clean_ext}' archive or document format capable of harboring macros or compressed payloads.")
+        else:
+            reasons.append(f"• Standard Media/Data Type: '{clean_ext}' is a low-risk media or data format.")
+
+        # 2. Cross-domain mismatch check
+        if is_cross_domain:
+            reasons.append(f"• Cross-Domain Redirect: The file download was initiated from a different origin domain than the hosting source page.")
+
+        # 3. URL SHAP evidence
+        is_threat = severity_label.lower() in ["high", "critical"] or probability >= 0.50
+        for item in attributions:
+            feat = item.get("feature", "")
+            val = item.get("value", 0.0)
+            direction = item.get("direction", "")
+            shap_val = item.get("shap_value", 0.0)
+            template = URL_FEATURE_DESCRIPTIONS.get(feat, f"URL signal: {feat}")
+            try:
+                desc = template.format(val=val)
+            except Exception:
+                desc = template
+                
+            if is_threat and direction == "increases_risk":
+                reasons.append(f"• Origin Phishing Indicator: {desc} (Impact: +{abs(shap_val):.2f})")
+            elif not is_threat and direction == "decreases_risk":
+                reasons.append(f"• Trusted Origin Indicator: {desc} (Impact: -{abs(shap_val):.2f})")
+
+        # 4. Summary formulation
+        if severity_label.lower() in ["high", "critical"]:
+            ext_desc = f"executable/script file ({clean_ext})" if extension_risk_tier >= 2.0 else f"file ({clean_ext})"
+            url_context = "and the download origin demonstrates strong phishing/credential harvesting characteristics" if probability >= 0.5 else "and anomalous redirect indicators were detected"
+            summary = (
+                f"This is a {severity_label} risk download because it is a {ext_desc} {url_context} ({probability*100:.1f}% origin threat probability)."
+            )
+        elif severity_label.lower() == "medium":
+            summary = (
+                f"This download is flagged with Caution/Medium risk due to contextual indicators associated with '{clean_ext}' or cross-domain hosting."
+            )
+        else:
+            summary = (
+                f"The AI threat engine evaluated this download as Low Risk / Likely Safe ({(1.0 - probability)*100:.1f}% safety confidence). "
+                f"File format '{clean_ext}' and origin URLs match standard non-malicious profiles."
+            )
+
         return {
             "summary": summary,
             "reasons": reasons,

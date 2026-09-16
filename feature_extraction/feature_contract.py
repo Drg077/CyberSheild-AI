@@ -137,3 +137,127 @@ class PEFeatureContract:
             df_aligned[col] = numeric_col.astype(float)
             
         return df_aligned
+
+
+class MessageFeatureContract:
+    SCHEMA_VERSION: str = "v1.0.0"
+    
+    # 24 Deterministic Stylometric Features extracted from raw message text
+    FEATURE_NAMES: List[str] = [
+        "CharCount",
+        "WordCount",
+        "SentenceCount",
+        "AvgSentenceLength",
+        "SentenceLengthVariance",
+        "LexicalDiversity",
+        "AvgWordLength",
+        "ImperativeVerbCount",
+        "ClauseDensity",
+        "FirstPersonPronounRatio",
+        "SecondPersonPronounRatio",
+        "ThirdPersonPronounRatio",
+        "UrgencyWordCount",
+        "CredentialRequestCount",
+        "ExclamationRatio",
+        "UppercaseWordRatio",
+        "PunctuationRatio",
+        "DigitRatio",
+        "URLCount",
+        "StopwordRatio",
+        "FunctionWordRatio",
+        "PassiveVoiceCount",
+        "ModalVerbCount",
+        "GreetingGenericFlag"
+    ]
+    
+    @classmethod
+    def validate_and_align(cls, df: pd.DataFrame, strict: bool = False) -> pd.DataFrame:
+        """
+        Validates that input DataFrame matches the exact message feature schema and column ordering.
+        Rejects missing columns, unexpected columns (if strict=True), NaNs, and infinite values.
+        """
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            raise FeatureContractValidationError("Input must be a non-empty pandas DataFrame.")
+            
+        missing = [col for col in cls.FEATURE_NAMES if col not in df.columns]
+        if missing:
+            raise FeatureContractValidationError(
+                f"Message Feature Contract Mismatch! Missing features: {missing}"
+            )
+            
+        if strict:
+            extra = [col for col in df.columns if col not in cls.FEATURE_NAMES]
+            if extra:
+                raise FeatureContractValidationError(
+                    f"Message Feature Contract Violation! Unexpected extra features: {extra}"
+                )
+                
+        df_aligned = df[cls.FEATURE_NAMES].copy()
+        
+        for col in cls.FEATURE_NAMES:
+            numeric_col = pd.to_numeric(df_aligned[col], errors='coerce')
+            if numeric_col.isnull().any():
+                raise FeatureContractValidationError(
+                    f"Feature Contract Validation Failed: Column '{col}' contains NaN or non-numeric values."
+                )
+            if np.isinf(numeric_col).any():
+                raise FeatureContractValidationError(
+                    f"Feature Contract Validation Failed: Column '{col}' contains infinite values."
+                )
+            df_aligned[col] = numeric_col.astype(float)
+            
+        return df_aligned
+
+
+class DownloadFeatureContract:
+    SCHEMA_VERSION: str = "v1.0.0"
+    
+    # 8 Deterministic and Model-Derived Features extracted from download metadata
+    FEATURE_NAMES: List[str] = [
+        "ExtensionRiskTier",
+        "FilenameLength",
+        "FilenameEntropy",
+        "ContainsSuspiciousKeyword",
+        "IsCrossDomain",
+        "SourcePhishingProb",
+        "DownloadPhishingProb",
+        "MaxPhishingProb"
+    ]
+    
+    @classmethod
+    def validate_and_align(cls, df: pd.DataFrame, strict: bool = False) -> pd.DataFrame:
+        """
+        Validates that input DataFrame matches the exact download feature schema and column ordering.
+        Rejects missing columns, unexpected columns (if strict=True), NaNs, and infinite values.
+        """
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            raise FeatureContractValidationError("Input must be a non-empty pandas DataFrame.")
+            
+        missing = [col for col in cls.FEATURE_NAMES if col not in df.columns]
+        if missing:
+            raise FeatureContractValidationError(
+                f"Download Feature Contract Mismatch! Missing features: {missing}"
+            )
+            
+        if strict:
+            extra = [col for col in df.columns if col not in cls.FEATURE_NAMES]
+            if extra:
+                raise FeatureContractValidationError(
+                    f"Download Feature Contract Violation! Unexpected extra features: {extra}"
+                )
+                
+        df_aligned = df[cls.FEATURE_NAMES].copy()
+        
+        for col in cls.FEATURE_NAMES:
+            numeric_col = pd.to_numeric(df_aligned[col], errors='coerce')
+            if numeric_col.isnull().any():
+                raise FeatureContractValidationError(
+                    f"Feature Contract Validation Failed: Column '{col}' contains NaN or non-numeric values."
+                )
+            if np.isinf(numeric_col).any():
+                raise FeatureContractValidationError(
+                    f"Feature Contract Validation Failed: Column '{col}' contains infinite values."
+                )
+            df_aligned[col] = numeric_col.astype(float)
+            
+        return df_aligned

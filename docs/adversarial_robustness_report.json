@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-09-16T06:08:48.927949+00:00",
+  "url_detector_robustness": {
+    "clean_baseline": {
+      "sample_count": 10,
+      "recall": 1.0,
+      "mean_threat_confidence": 0.7082
+    },
+    "homograph_attack": {
+      "recall": 1.0,
+      "mean_threat_confidence": 0.8252,
+      "recall_delta": 0.0
+    },
+    "subdomain_injection_attack": {
+      "recall": 1.0,
+      "mean_threat_confidence": 0.6529,
+      "recall_delta": 0.0
+    },
+    "path_padding_attack": {
+      "recall": 1.0,
+      "mean_threat_confidence": 0.9573,
+      "recall_delta": 0.0
+    }
+  },
+  "message_detector_robustness": {
+    "status": "Model artifact not trained yet. Run train_message_stylometric.py first."
+  }
+}

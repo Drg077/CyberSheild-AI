@@ -28,5 +28,9 @@ class Settings:
     WEIGHT_PHISHING_CONTEXT: float = float(os.getenv("WEIGHT_PHISHING_CONTEXT", "0.15"))
     WEIGHT_MALWARE: float = float(os.getenv("WEIGHT_MALWARE", "0.85"))
     WEIGHT_MALWARE_CONTEXT: float = float(os.getenv("WEIGHT_MALWARE_CONTEXT", "0.15"))
+    WEIGHT_MESSAGE: float = float(os.getenv("WEIGHT_MESSAGE", "0.85"))
+    WEIGHT_MESSAGE_CONTEXT: float = float(os.getenv("WEIGHT_MESSAGE_CONTEXT", "0.15"))
+    USE_LEARNED_FUSION: bool = os.getenv("USE_LEARNED_FUSION", "True").lower() in ("true", "1", "yes")
 
 settings = Settings()
+

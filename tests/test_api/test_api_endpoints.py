@@ -14,7 +14,10 @@ def test_health_endpoint():
     assert data["status"] == "healthy"
     assert data["phishing_model_loaded"] is True
     assert data["malware_model_loaded"] is True
+    assert "message_model_loaded" in data
     assert data["url_schema_version"] == "v1.0.0"
+    assert data["message_schema_version"] == "v1.0.0"
+
 
 def test_analyze_legitimate_url():
     """Verify legitimate banking URL returns Low Risk and ALLOW decision."""
@@ -141,3 +144,45 @@ def test_file_upload_malicious_benchmark_pe():
     assert data["target"] == "malicious_pe_benchmark.exe"
     assert data["risk_score"] >= 70.0
     assert data["decision"] in ["WARN", "QUARANTINE"]
+
+def test_analyze_legitimate_message():
+    """Verify legitimate message returns Low/Medium Risk and ALLOW/CAUTION decision."""
+    payload = {"text": "Hello John, your monthly credit card statement is now available in your online portal for review. Thank you for banking with us."}
+    response = client.post("/api/v1/analyze/message", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    
+    assert data["input_type"] == "MESSAGE"
+    assert data["risk_score"] < 50.0
+    assert len(data["top_features"]) == 5
+    assert len(data["reasons"]) == 5
+    assert "reasons" in data
+
+def test_analyze_phishing_message():
+    """Verify high-urgency credential phishing message returns High/Critical Risk and highlights."""
+    payload = {"text": "Dear Customer, your bank account has been suspended immediately! Please verify your password and OTP within 24 hours at http://verify-bank.com to avoid permanent closure."}
+    response = client.post("/api/v1/analyze/message", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    
+    assert data["input_type"] == "MESSAGE"
+    assert data["risk_score"] >= 60.0
+    assert data["severity"] in ["High", "Critical"]
+    assert data["decision"] in ["WARN", "BLOCK", "QUARANTINE"]
+    assert "highlighted_spans" in data
+    assert len(data["highlighted_spans"]) > 0
+
+def test_analyze_message_validation():
+    """Verify validation on empty, too short (< 10 chars), and oversized (> 10000 chars) messages."""
+    # Too short
+    res_short = client.post("/api/v1/analyze/message", json={"text": "hi"})
+    assert res_short.status_code in [400, 422]
+    
+    # Whitespace only
+    res_ws = client.post("/api/v1/analyze/message", json={"text": "          "})
+    assert res_ws.status_code in [400, 422]
+    
+    # Oversized
+    res_over = client.post("/api/v1/analyze/message", json={"text": "A" * 10005})
+    assert res_over.status_code in [400, 422]
+

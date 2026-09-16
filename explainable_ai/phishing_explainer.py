@@ -28,7 +28,7 @@ class PhishingShapExplainer:
         
         # Calculate shap values
         # For RandomForestClassifier, explainer.shap_values produces array of shape (samples, features, classes) or list [class0, class1]
-        shap_vals = self.explainer.shap_values(df_aligned)
+        shap_vals = self.explainer.shap_values(df_aligned.values)
         
         # Normalize format: get attributions for Class 1 (Threat)
         if isinstance(shap_vals, list):

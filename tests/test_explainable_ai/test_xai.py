@@ -45,3 +45,38 @@ def test_malware_shap_explainer():
     assert "reasons" in formatted
     assert len(formatted["reasons"]) == 5
     assert "95.0%" in formatted["summary"]
+
+def test_content_explainer_and_formatter():
+    """Verify ContentExplainer produces both SHAP attributions and highlighted spans."""
+    from feature_extraction.message_features import extract_message_features_df
+    from explainable_ai.content_explainer import content_explainer
+
+    msg = "Dear Customer, your bank account is suspended immediately! Please verify your password and OTP within 24 hours at http://fake-bank-login.xyz."
+    df = extract_message_features_df([msg])
+
+    result = content_explainer.explain(text=msg, features_df=df, top_k=5)
+    assert "top_features" in result
+    assert "highlighted_spans" in result
+    assert len(result["top_features"]) == 5
+
+    for item in result["top_features"]:
+        assert "feature" in item
+        assert "shap_value" in item
+        assert "direction" in item
+
+    assert len(result["highlighted_spans"]) > 0
+    for span in result["highlighted_spans"]:
+        assert "text" in span
+        assert "start" in span
+        assert "end" in span
+        assert "weight" in span
+        assert span["start"] < span["end"]
+
+    formatted = ExplanationFormatter.format_message_explanation(
+        result["top_features"], prediction_label="ai_phishing", probability=0.96
+    )
+    assert "summary" in formatted
+    assert "reasons" in formatted
+    assert "96.0%" in formatted["summary"]
+    assert "GenAI-synthesized phishing" in formatted["summary"]
+

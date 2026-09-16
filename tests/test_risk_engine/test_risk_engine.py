@@ -82,3 +82,41 @@ def test_decision_policy_mappings():
     assert d_file_crit["action"] == SecurityAction.QUARANTINE.value
     assert "quarantined" in d_file_crit["recommendation"]
     assert "Assessment is based on statistical machine-learning" in d_file_crit["disclaimer"]
+
+def test_message_context_heuristics():
+    """Verify message context heuristics detect urgency, credentials, greetings, and URLs."""
+    from risk_engine.risk_score import compute_message_context
+    
+    ctx_clean = compute_message_context({
+        "UrgencyWordCount": 0.0,
+        "CredentialRequestCount": 0.0,
+        "GreetingGenericFlag": 0.0,
+        "URLCount": 0.0
+    })
+    assert ctx_clean == 0.0
+    
+    ctx_threat = compute_message_context({
+        "UrgencyWordCount": 2.0,
+        "CredentialRequestCount": 1.0,
+        "GreetingGenericFlag": 1.0,
+        "URLCount": 1.0
+    })
+    assert ctx_threat == 1.0  # 0.35 + 0.35 + 0.20 + 0.10 = 1.0
+
+def test_message_risk_scoring_and_fallback():
+    """Verify calculate_message_risk and calculate_unified_risk calculation."""
+    from risk_engine.risk_score import risk_engine
+    
+    res_msg = risk_engine.calculate_message_risk(message_probability=0.80, context_score=0.50)
+    assert res_msg.input_type == "MESSAGE"
+    assert res_msg.risk_score > 0.0
+    assert res_msg.severity in [SeverityLevel.HIGH, SeverityLevel.CRITICAL]
+    
+    unified_res = risk_engine.calculate_unified_risk(
+        input_type="MESSAGE",
+        p_genai_phishing=0.90,
+        context_score=0.80
+    )
+    assert unified_res.input_type == "MESSAGE"
+    assert unified_res.risk_score >= 80.0
+    assert unified_res.severity == SeverityLevel.CRITICAL
