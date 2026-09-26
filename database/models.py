@@ -31,6 +31,7 @@ class ThreatAnalysisRecord(Base):
     top_features = Column(JSON, nullable=False) # List of SHAP attributions
     highlighted_spans = Column(JSON, nullable=True) # List of {text, start, end, weight}
     detector_probabilities = Column(JSON, nullable=True) # Probabilities across all models for audit
+    context_score = Column(Float, nullable=True, default=0.0) # Contextual risk score [0.0, 1.0]
     
     # Audit & Model metadata
     model_version = Column(String(20), nullable=False)

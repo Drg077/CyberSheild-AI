@@ -4,7 +4,7 @@ Translates Risk Assessment and Severity into actionable protection decisions.
 Communicates uncertainty and actionable guidance to digital banking customers.
 """
 from enum import Enum
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from risk_engine.thresholds import SeverityLevel
 
 class SecurityAction(str, Enum):
@@ -22,7 +22,12 @@ class DecisionPolicy:
     )
     
     @classmethod
-    def get_decision(cls, input_type: str, severity: SeverityLevel) -> Dict[str, Any]:
+    def get_decision(
+        cls,
+        input_type: str,
+        severity: SeverityLevel,
+        final_assessment: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Determines security action, title, banking recommendations, and disclaimers.
         """
@@ -31,7 +36,14 @@ class DecisionPolicy:
         is_download = itype == "DOWNLOAD"
         is_message = itype == "MESSAGE"
         
-        if severity == SeverityLevel.LOW:
+        if final_assessment == "SUSPICIOUS / UNKNOWN" and severity in [SeverityLevel.LOW, SeverityLevel.MEDIUM]:
+            action = SecurityAction.CAUTION
+            title = "Unverified URL / Exercise Caution"
+            recommendation = (
+                "This domain is unverified. Do not enter banking credentials or payment details "
+                "unless you independently confirm the address with the organization."
+            )
+        elif severity == SeverityLevel.LOW:
             action = SecurityAction.ALLOW
             title = "Low Risk / Likely Safe"
             if is_download:
@@ -112,9 +124,20 @@ class DecisionPolicy:
                     "account takeover and credential theft. Contact your bank if you already entered details."
                 )
             
+        if final_assessment is None:
+            if severity in [SeverityLevel.HIGH, SeverityLevel.CRITICAL]:
+                derived_assessment = "MALICIOUS"
+            elif severity == SeverityLevel.LOW:
+                derived_assessment = "LIKELY LEGITIMATE"
+            else:
+                derived_assessment = "SUSPICIOUS / UNKNOWN"
+        else:
+            derived_assessment = final_assessment
+
         return {
             "action": action.value,
             "title": title,
             "recommendation": recommendation,
-            "disclaimer": cls.DISCLAIMER
+            "disclaimer": cls.DISCLAIMER,
+            "final_assessment": derived_assessment
         }

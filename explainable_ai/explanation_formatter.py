@@ -3,7 +3,7 @@ Explanation Formatter for Explainable AI (XAI).
 Translates raw technical feature names and numerical SHAP values into clear,
 human-understandable reasons for digital banking users across URLs, PE Binaries, and Messages.
 """
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # Plain-English descriptions for URL features
 URL_FEATURE_DESCRIPTIONS = {
@@ -94,14 +94,19 @@ class ExplanationFormatter:
         cls,
         attributions: List[Dict[str, Any]],
         prediction_label: str,
-        probability: float
+        probability: float,
+        threat_intel: Optional[Dict[str, Any]] = None,
+        domain_reputation: Optional[Dict[str, Any]] = None,
+        final_assessment: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Translates raw SHAP attributions into customer-friendly reasons for URL analysis.
+        Translates raw SHAP attributions and multi-evidence inputs into customer-friendly reasons for URL analysis.
+        Preserves 20-feature SHAP attributions while clearly delineating ML, Context, Threat Intel, and Domain evidence.
         """
         reasons: List[str] = []
-        is_threat = prediction_label.lower() in ["phishing", "malicious"] or probability >= 0.5
+        is_threat = prediction_label.lower() in ["phishing", "malicious", "suspicious / unknown"] or probability >= 0.5
         
+        # 1. ML Feature Evidence (from SHAP on the 20 model inputs)
         for item in attributions:
             feat = item["feature"]
             val = item["value"]
@@ -116,30 +121,58 @@ class ExplanationFormatter:
                 
             if is_threat:
                 if direction == "increases_risk":
-                    reasons.append(f"• Elevated Risk Factor: {desc} (Impact: +{abs(shap_val):.2f})")
+                    reasons.append(f"• Elevated ML Risk Factor: {desc} (Impact: +{abs(shap_val):.2f})")
                 else:
-                    reasons.append(f"• Mitigating Factor: {desc} (Impact: -{abs(shap_val):.2f})")
+                    reasons.append(f"• Mitigating ML Factor: {desc} (Impact: -{abs(shap_val):.2f})")
             else:
                 if direction == "decreases_risk":
-                    reasons.append(f"• Safety Indicator: {desc} (Impact: -{abs(shap_val):.2f})")
+                    reasons.append(f"• ML Safety Indicator: {desc} (Impact: -{abs(shap_val):.2f})")
                 else:
-                    reasons.append(f"• Caution Flag: {desc} (Impact: +{abs(shap_val):.2f})")
-                    
-        if is_threat:
+                    reasons.append(f"• ML Caution Flag: {desc} (Impact: +{abs(shap_val):.2f})")
+
+        # 2. Threat Intelligence Evidence
+        threat_intel_desc = "Not configured (ML & heuristic mode)"
+        if threat_intel:
+            threat_intel_desc = threat_intel.get("description", threat_intel.get("status", "Unavailable"))
+
+        # 3. Domain Reputation Evidence
+        domain_desc = "Standard unranked domain"
+        if domain_reputation:
+            domain_desc = domain_reputation.get("description", "Standard unranked domain")
+
+        # 4. Formulate Summary
+        assessment_str = final_assessment or ("MALICIOUS" if is_threat else "LIKELY LEGITIMATE")
+        if assessment_str == "MALICIOUS":
             summary = (
-                f"The AI model identified this link as likely phishing with {probability*100:.1f}% confidence. "
-                "Key suspicious patterns include abnormal structural attributes and indicators consistent with credential harvesting."
+                f"The system classified this URL as MALICIOUS with {probability*100:.1f}% estimated threat likelihood. "
+                "Suspicious structural patterns and/or external threat intelligence indicate elevated risk of credential theft or fraud."
+            )
+        elif assessment_str == "SUSPICIOUS / UNKNOWN":
+            summary = (
+                f"The system classified this URL as SUSPICIOUS / UNKNOWN ({probability*100:.1f}% model likelihood). "
+                "Conflicting signals or unverified domain structure warrant caution before submitting sensitive banking information."
             )
         else:
             summary = (
-                f"The AI model classified this address as likely legitimate ({ (1.0 - probability)*100:.1f}% confidence). "
-                "Its structural patterns and domain properties align closely with standard authenticated web resources."
+                f"The system classified this address as LIKELY LEGITIMATE ({(1.0 - probability)*100:.1f}% legitimate confidence). "
+                "Its structural patterns and domain properties align closely with authenticated resources."
             )
+
+        evidence_breakdown = {
+            "ml_evidence": [
+                f"{item['feature']}: {'+' if item['direction'] == 'increases_risk' else '-'}{abs(item['shap_value']):.2f}"
+                for item in attributions
+            ],
+            "threat_intel_evidence": threat_intel_desc,
+            "domain_evidence": domain_desc,
+            "final_assessment": assessment_str
+        }
             
         return {
             "summary": summary,
             "reasons": reasons,
-            "top_features": attributions
+            "top_features": attributions,
+            "evidence_breakdown": evidence_breakdown
         }
         
     @classmethod

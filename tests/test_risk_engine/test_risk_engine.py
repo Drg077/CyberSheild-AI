@@ -38,7 +38,7 @@ def test_distinct_url_and_malware_weights():
     url_res = engine.calculate_url_risk(phishing_probability=0.50, context_score=0.50)
     assert url_res.weights["model"] == 0.80
     assert url_res.weights["context"] == 0.20
-    assert url_res.risk_score == 50.0 # 100 * (0.8*0.5 + 0.2*0.5)
+    assert url_res.risk_score == 45.2 # Fused model, URL-feature, and unknown-domain evidence
     
     # File scoring with 0.90 / 0.10
     file_res = engine.calculate_file_risk(malware_probability=0.50, context_score=0.50)

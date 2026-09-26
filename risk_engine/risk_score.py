@@ -16,8 +16,14 @@ class RiskAssessment:
     model_probability: float
     context_score: float
     weights: Dict[str, float]
+    threat_intel: Optional[Dict[str, Any]] = None
+    domain_reputation: Optional[Dict[str, Any]] = None
+    final_assessment: Optional[str] = None
 
-def compute_url_context(features: Dict[str, float]) -> float:
+def compute_url_context(
+    features: Dict[str, float],
+    domain_reputation: Optional[Dict[str, Any]] = None
+) -> float:
     """
     Computes a contextual risk modifier [0.0, 1.0] from URL static properties:
     - IP Host (+0.40)
@@ -33,6 +39,10 @@ def compute_url_context(features: Dict[str, float]) -> float:
     if features.get("NoOfSubDomain", 0.0) >= 2.0:
         ctx += 0.20
     if features.get("IsHTTPS", 1.0) == 0.0:
+        ctx += 0.10
+    if domain_reputation and not domain_reputation.get("is_established"):
+        # An unranked domain remains unverified even if registration/TLS checks
+        # pass; those checks establish infrastructure, not benign content.
         ctx += 0.10
     return round(min(1.0, ctx), 4)
 
@@ -124,14 +134,87 @@ class RiskAnalysisEngine:
     def calculate_url_risk(
         self,
         phishing_probability: float,
-        context_score: float = 0.0
+        context_score: float = 0.0,
+        threat_intel: Optional[Dict[str, Any]] = None,
+        domain_reputation: Optional[Dict[str, Any]] = None,
+        domain_verification: Optional[Dict[str, Any]] = None
     ) -> RiskAssessment:
         p_clamped = max(0.0, min(1.0, float(phishing_probability)))
         c_clamped = max(0.0, min(1.0, float(context_score)))
         
-        raw_score = 100.0 * (self.w_url_model * p_clamped + self.w_url_context * c_clamped)
-        risk_score = round(max(0.0, min(100.0, raw_score)), 1)
-        severity = ThresholdConfig.get_severity(risk_score)
+        verification = domain_verification or {}
+        age_days = verification.get("domain_age_days")
+        is_established = bool(domain_reputation and domain_reputation.get("is_established"))
+        confirmed_threat = bool(threat_intel and threat_intel.get("is_threat"))
+
+        # Unified Risk fuses the learned URL prediction, static URL signals,
+        # and supporting domain evidence. Model probability remains separate.
+        feature_risk = 0.0
+        if c_clamped >= 0.80:
+            feature_risk = 72.0
+        elif c_clamped >= 0.60:
+            feature_risk = 58.0
+        elif c_clamped >= 0.40:
+            feature_risk = 46.0
+        elif c_clamped >= 0.20:
+            feature_risk = 34.0
+        elif c_clamped >= 0.10:
+            feature_risk = 24.0
+
+        # Registration/DNS/TLS are corroborating signals, not a safety verdict.
+        domain_risk = 0.0
+        if not is_established:
+            domain_risk += 12.0
+        if isinstance(age_days, (int, float)) and age_days < 30:
+            domain_risk += 12.0
+        if verification.get("registration_status") in {"not_found", "reserved"}:
+            domain_risk += 10.0
+        elif verification.get("registration_status") in {"unavailable", "unsupported", "invalid"}:
+            domain_risk += 4.0
+        if verification.get("dns_status") in {"no_records", "unavailable"}:
+            domain_risk += 8.0
+        if verification.get("tls_status") == "invalid":
+            domain_risk += 8.0
+        elif verification.get("tls_status") in {"unavailable", "not_checked_no_dns"}:
+            domain_risk += 3.0
+
+        combined = (100.0 * (self.w_url_model * p_clamped + self.w_url_context * c_clamped))
+        combined = (0.65 * combined) + (0.25 * feature_risk) + (0.10 * min(30.0, domain_risk))
+        if (is_established and verification.get("registration_status") == "registered"
+                and verification.get("dns_status") == "resolves" and verification.get("tls_status") == "valid"):
+            combined -= 2.0
+        elif not is_established:
+            # Unranked domains with ordinary structure start in the caution
+            # band, but this floor alone never calls them malicious.
+            combined = max(15.0, combined)
+        risk_score = max(0.0, min(100.0, combined))
+        if confirmed_threat:
+            risk_score = max(90.0, risk_score)
+        risk_score = round(risk_score, 1)
+
+        # Agreed score bands: 0–29 low, 30–49 medium, 50–89 high, 90–100 critical.
+        if risk_score < 30.0:
+            severity = SeverityLevel.LOW
+        elif risk_score < 50.0:
+            severity = SeverityLevel.MEDIUM
+        elif risk_score < 90.0:
+            severity = SeverityLevel.HIGH
+        else:
+            severity = SeverityLevel.CRITICAL
+
+        strong_url_evidence = c_clamped >= 0.60 or p_clamped >= 0.80
+        if confirmed_threat or risk_score >= 90.0 or (strong_url_evidence and risk_score >= 70.0):
+            final_assessment = "MALICIOUS"
+        elif risk_score >= 50.0:
+            final_assessment = "SUSPICIOUS / UNKNOWN"
+        elif (is_established and verification.get("registration_status") == "registered"
+              and verification.get("dns_status") == "resolves" and verification.get("tls_status") == "valid"
+              and p_clamped < getattr(settings, "PHISHING_DECISION_THRESHOLD", 0.55) and c_clamped <= 0.30):
+            final_assessment = "LIKELY LEGITIMATE"
+        elif risk_score < 30.0 and is_established and c_clamped < 0.20:
+            final_assessment = "LIKELY LEGITIMATE"
+        else:
+            final_assessment = "SUSPICIOUS / UNKNOWN"
         
         return RiskAssessment(
             input_type="URL",
@@ -139,7 +222,10 @@ class RiskAnalysisEngine:
             severity=severity,
             model_probability=round(p_clamped, 4),
             context_score=round(c_clamped, 4),
-            weights={"model": round(self.w_url_model, 4), "context": round(self.w_url_context, 4)}
+            weights={"model": round(self.w_url_model, 4), "context": round(self.w_url_context, 4)},
+            threat_intel=threat_intel,
+            domain_reputation=domain_reputation,
+            final_assessment=final_assessment
         )
         
     def calculate_file_risk(
@@ -234,12 +320,25 @@ class RiskAnalysisEngine:
         p_phishing: Optional[float] = None,
         p_malware: Optional[float] = None,
         p_genai_phishing: Optional[float] = None,
-        context_score: float = 0.0
+        context_score: float = 0.0,
+        threat_intel: Optional[Dict[str, Any]] = None,
+        domain_reputation: Optional[Dict[str, Any]] = None,
+        domain_verification: Optional[Dict[str, Any]] = None
     ) -> RiskAssessment:
         """
         Calculates unified risk using learned FusionModel if available,
         or dynamically delegating to modality-specific assessment.
         """
+        itype = input_type.upper()
+        if itype == "URL" and p_phishing is not None:
+            return self.calculate_url_risk(
+                phishing_probability=p_phishing,
+                context_score=context_score,
+                threat_intel=threat_intel,
+                domain_reputation=domain_reputation,
+                domain_verification=domain_verification
+            )
+
         from risk_engine.fusion_model import fusion_model
         
         risk_score = fusion_model.predict_risk(
@@ -275,5 +374,3 @@ risk_engine = RiskAnalysisEngine(
     weight_message=settings.WEIGHT_MESSAGE,
     weight_message_context=settings.WEIGHT_MESSAGE_CONTEXT
 )
-
-

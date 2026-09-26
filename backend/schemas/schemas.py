@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 
 class URLAnalysisRequest(BaseModel):
-    url: str = Field(..., description="Target URL to be analyzed safely without navigation.", min_length=3, max_length=2048)
+    url: str = Field(..., description="URL analyzed without loading its webpage; domain registration, DNS, and TLS metadata may be checked.", min_length=3, max_length=2048)
 
 class MessageAnalysisRequest(BaseModel):
     text: str = Field(..., description="Message/email content to be analyzed for AI/human phishing indicators.", min_length=10, max_length=10000)
@@ -51,7 +51,15 @@ class ThreatAnalysisResponse(BaseModel):
     download_source_url: Optional[str] = None
     download_url: Optional[str] = None
     highlighted_spans: Optional[List[Dict[str, Any]]] = None
-    detector_probabilities: Optional[Dict[str, float]] = None
+    detector_probabilities: Optional[Dict[str, Any]] = None
+    context_score: float = 0.0
+    prediction_likelihood: Optional[float] = None
+    prediction_likelihood_label: Optional[str] = None
+    threat_intel: Optional[Dict[str, Any]] = None
+    domain_reputation: Optional[Dict[str, Any]] = None
+    domain_verification: Optional[Dict[str, Any]] = None
+    final_assessment: Optional[str] = None
+    evidence_breakdown: Optional[Dict[str, Any]] = None
 
 class HistoryItemResponse(BaseModel):
     id: str
@@ -69,6 +77,13 @@ class HistoryItemResponse(BaseModel):
     file_sha256: Optional[str] = None
     download_source_url: Optional[str] = None
     download_url: Optional[str] = None
+    context_score: Optional[float] = None
+    prediction_likelihood: Optional[float] = None
+    prediction_likelihood_label: Optional[str] = None
+    threat_intel: Optional[Dict[str, Any]] = None
+    domain_reputation: Optional[Dict[str, Any]] = None
+    domain_verification: Optional[Dict[str, Any]] = None
+    final_assessment: Optional[str] = None
 
 class HealthResponse(BaseModel):
     status: str

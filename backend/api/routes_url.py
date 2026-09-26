@@ -20,6 +20,8 @@ def analyze_url(request: URLAnalysisRequest, db: Session = Depends(get_db)):
     try:
         response = ThreatService.analyze_url(url=clean_url, db=db)
         return response
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         # Prevent leaking internal stack traces
         raise HTTPException(status_code=500, detail="Failed to complete URL security analysis.")

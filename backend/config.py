@@ -32,5 +32,14 @@ class Settings:
     WEIGHT_MESSAGE_CONTEXT: float = float(os.getenv("WEIGHT_MESSAGE_CONTEXT", "0.15"))
     USE_LEARNED_FUSION: bool = os.getenv("USE_LEARNED_FUSION", "True").lower() in ("true", "1", "yes")
 
+    # Threat Intelligence & External Evidence Feeds
+    GOOGLE_WEB_RISK_API_KEY: str = os.getenv("GOOGLE_WEB_RISK_API_KEY", "")
+    PHISHTANK_API_KEY: str = os.getenv("PHISHTANK_API_KEY", "")
+    THREAT_INTEL_TIMEOUT_SECONDS: float = float(os.getenv("THREAT_INTEL_TIMEOUT_SECONDS", "2.0"))
+    THREAT_INTEL_CACHE_TTL_SECONDS: int = int(os.getenv("THREAT_INTEL_CACHE_TTL_SECONDS", "3600"))
+
+    # Empirical Phishing Decision Threshold (derived on validation split)
+    PHISHING_DECISION_THRESHOLD: float = float(os.getenv("PHISHING_DECISION_THRESHOLD", "0.55"))
+
 settings = Settings()
 

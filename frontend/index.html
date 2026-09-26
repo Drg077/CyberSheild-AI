@@ -246,8 +246,15 @@
 
           <div class="architecture-diagram-card">
             <h3>Unified Risk Scoring & Decision Pipeline</h3>
-            <div class="formula-box">
-              <code>Unified Risk Score = 100 × [Learned Fusion Meta-Classifier or Dynamic Fallback]</code>
+            <div class="formula-box" style="margin-bottom: 16px;">
+              <p style="margin-bottom: 8px;"><strong>1. Unified Risk Score (0–100):</strong> Fused composite index synthesizing machine-learning probability and static contextual indicators.</p>
+              <div style="font-family: var(--font-mono); font-size: 0.85rem; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; margin-bottom: 8px;">
+                • Learned Fusion: Unified Risk = 100 × P_fusion, where P_fusion = σ(w^T x + b)<br>
+                • Fallback Baseline: Unified Risk = 100 × (w_model · P_model + w_context · C_context) / (w_model + w_context) [w_model = 0.85, w_context = 0.15]
+              </div>
+              <p style="margin-bottom: 8px;"><strong>2. Prediction Likelihood (%):</strong> The model's statistical class confidence for the predicted class. For threat classifications, it displays P(Threat) × 100; for legitimate classifications, it displays P(Legitimate) = [1 − P(Threat)] × 100.</p>
+              <p style="margin-bottom: 8px;"><strong>3. Contextual Risk Score (0–100):</strong> Independent, deterministic score evaluating static structural & environmental red flags (e.g. numeric IP hosts, anomalous sections, urgency lexicons, or executable download extensions).</p>
+              <p style="margin-bottom: 0;"><strong>4. Explainable AI (SHAP TreeExplainer):</strong> Exact Shapley attributions satisfying f(x) = φ_0 + Σ φ_i. Positive values (+φ_i) elevate risk toward the threat class; negative values (-φ_i) mitigate risk. Bar widths reflect relative absolute impact (|φ_i| / max|φ| × 100).</p>
             </div>
             <div class="severity-scale">
               <div class="scale-step low">0–29: LOW (Allow)</div>

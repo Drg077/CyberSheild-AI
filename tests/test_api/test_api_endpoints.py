@@ -186,3 +186,95 @@ def test_analyze_message_validation():
     res_over = client.post("/api/v1/analyze/message", json={"text": "A" * 10005})
     assert res_over.status_code in [400, 422]
 
+def test_indicators_legitimate_url():
+    """Verify Unified Risk, Legitimate Likelihood, and Contextual Risk on legitimate URL."""
+    res = client.post("/api/v1/analyze/url", json={"url": "https://www.hdfcbank.com"})
+    assert res.status_code == 200
+    data = res.json()
+    assert "risk_score" in data
+    assert "prediction_likelihood" in data
+    assert "prediction_likelihood_label" in data
+    assert "context_score" in data
+    assert data["prediction"] == "Legitimate"
+    assert data["prediction_likelihood_label"] == "Legitimate Likelihood"
+    # When probability is low, legitimate likelihood is high (1 - p)
+    assert data["prediction_likelihood"] >= 0.75
+    assert 0.0 <= data["context_score"] <= 1.0
+
+def test_indicators_phishing_url():
+    """Verify Unified Risk, Phishing Likelihood, and Contextual Risk on phishing URL."""
+    url = "http://192.168.1.1/update-account-bank-security/login.php?user=admin&token=123"
+    res = client.post("/api/v1/analyze/url", json={"url": url})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["prediction"] == "Phishing"
+    assert data["prediction_likelihood_label"] == "Phishing Likelihood"
+    assert data["prediction_likelihood"] >= 0.70
+    assert data["context_score"] >= 0.50
+    assert data["risk_score"] >= 60.0
+
+def test_indicators_benign_pe_file():
+    """Verify indicators on benign PE file."""
+    pe_file = FIXTURES_DIR / "real_benign_sample.exe"
+    with open(pe_file, "rb") as f:
+        res = client.post("/api/v1/analyze/file", files={"file": ("real_benign_sample.exe", f, "application/octet-stream")})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["prediction"] == "Benign"
+    assert data["prediction_likelihood_label"] == "Legitimate Likelihood"
+    assert data["prediction_likelihood"] >= 0.70
+    assert "context_score" in data
+    assert 0.0 <= data["context_score"] <= 1.0
+
+def test_indicators_malicious_pe_file():
+    """Verify indicators on malicious PE file."""
+    pe_file = FIXTURES_DIR / "malicious_pe_benchmark.exe"
+    with open(pe_file, "rb") as f:
+        res = client.post("/api/v1/analyze/file", files={"file": ("malicious_pe_benchmark.exe", f, "application/octet-stream")})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["prediction"] == "Malicious"
+    assert data["prediction_likelihood_label"] == "Malware Likelihood"
+    assert data["prediction_likelihood"] >= 0.80
+    assert "context_score" in data
+
+def test_indicators_in_history():
+    """Verify history items contain context_score and prediction_likelihood."""
+    res = client.get("/api/v1/history?limit=5")
+    assert res.status_code == 200
+    items = res.json()
+    assert len(items) > 0
+    first = items[0]
+    assert "context_score" in first
+    assert "prediction_likelihood" in first
+    assert "prediction_likelihood_label" in first
+
+def test_debiased_real_time_url_accuracy():
+    """
+    Verify real-time prediction accuracy >= 85% across diverse apex, subdomains,
+    and genuine phishing URLs without false-positive apex domain bias.
+    """
+    eval_cases = [
+        ("https://github.com", "Legitimate"),
+        ("github.com", "Legitimate"),
+        ("https://google.com", "Legitimate"),
+        ("https://amazon.com", "Legitimate"),
+        ("https://netflix.com", "Legitimate"),
+        ("https://apple.com", "Legitimate"),
+        ("https://www.hdfcbank.com", "Legitimate"),
+        ("http://192.168.1.1/update", "Phishing"),
+        ("http://paypal-security-update.tk/login.php", "Phishing"),
+        ("http://apple-iforget.com/verify", "Phishing")
+    ]
+    correct = 0
+    for url, expected in eval_cases:
+        res = client.post("/api/v1/analyze/url", json={"url": url})
+        assert res.status_code == 200
+        data = res.json()
+        if data["prediction"] == expected:
+            correct += 1
+    accuracy = correct / len(eval_cases)
+    assert accuracy >= 0.85, f"Expected real-time accuracy >= 85%, got {accuracy * 100:.1f}%"
+
+
+

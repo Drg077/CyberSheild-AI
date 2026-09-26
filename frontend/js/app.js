@@ -296,6 +296,14 @@ function renderResult(container, data) {
     `;
   }
 
+  const isLegit = ["legitimate", "benign", "legitimate / safe"].includes((data.prediction || "").toLowerCase());
+  const predictionLikelihoodVal = data.prediction_likelihood != null
+    ? (data.prediction_likelihood * 100).toFixed(1)
+    : (isLegit ? ((1.0 - data.probability) * 100).toFixed(1) : (data.probability * 100).toFixed(1));
+  const predictionLikelihoodLabel = data.prediction_likelihood_label || 
+    (isLegit ? "Legitimate Likelihood" : (data.prediction.toLowerCase().includes("suspicious") ? "Model Phishing Likelihood" : (data.prediction.toLowerCase().includes("mal") ? "Malware Likelihood" : "Phishing Likelihood")));
+  const contextScoreVal = ((data.context_score != null ? data.context_score : 0.0) * 100).toFixed(1);
+
   container.innerHTML = `
     <!-- Top Threat Banner -->
     <div class="threat-banner severity-${sevLower}">
@@ -305,16 +313,53 @@ function renderResult(container, data) {
         <p class="target-url">${escapeHtml(data.target)}</p>
       </div>
       <div class="banner-scores">
-        <div class="score-box">
+        <div class="score-box" title="Unified Risk Score (0-100): Multi-modal synthesis of ML statistical probability and static contextual indicators">
           <div class="score-value">${data.risk_score}</div>
           <div class="score-label">Unified Risk (0-100)</div>
         </div>
-        <div class="score-box">
-          <div class="score-value">${(data.probability * 100).toFixed(1)}%</div>
-          <div class="score-label">${escapeHtml(data.prediction)} Likelihood</div>
+        <div class="score-box" title="Prediction Likelihood (%): Machine learning model class probability for the predicted classification (${escapeHtml(predictionLikelihoodLabel)})">
+          <div class="score-value">${predictionLikelihoodVal}%</div>
+          <div class="score-label">${escapeHtml(predictionLikelihoodLabel)}</div>
+        </div>
+        <div class="score-box" title="Static URL signals (0-100): IP host, suspicious terms, deep subdomains, missing HTTPS, and unranked domain reputation.">
+          <div class="score-value">${contextScoreVal}</div>
+          <div class="score-label">Contextual Risk (0-100)</div>
         </div>
       </div>
     </div>
+
+    <!-- Multi-Source Evidence Breakdown (for URLs) -->
+    ${data.input_type === 'URL' ? `
+    <div class="evidence-strip" style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; margin-bottom: 16px; padding: 10px 16px; background: rgba(30, 41, 59, 0.7); border: 1px solid var(--border-color); border-radius: 8px; align-items: center; justify-content: space-between;">
+      <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
+        <div style="font-size: 0.85rem;">
+          <span style="color: var(--text-muted);">Threat Intel:</span>
+          <span class="badge" style="margin-left: 6px; font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; font-weight: 500; ${data.threat_intel?.is_threat ? 'background: #dc2626; color: #fff;' : (data.threat_intel?.status === 'no_known_threat' ? 'background: rgba(16, 185, 129, 0.2); color: #34d399;' : 'background: rgba(100, 116, 139, 0.2); color: #94a3b8;')}">
+            ${escapeHtml(data.threat_intel?.status === 'confirmed_threat' ? 'Confirmed Threat' : (data.threat_intel?.status === 'no_known_threat' ? 'No Known Threat Found' : (data.threat_intel?.status === 'unavailable' ? 'Unavailable' : 'Not Configured')))}
+          </span>
+        </div>
+        <div style="font-size: 0.85rem;">
+          <span style="color: var(--text-muted);">Domain Authority:</span>
+          <span class="badge" style="margin-left: 6px; font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; font-weight: 500; ${data.domain_reputation?.is_established ? 'background: rgba(16, 185, 129, 0.2); color: #34d399;' : 'background: rgba(100, 116, 139, 0.2); color: #94a3b8;'}">
+            ${escapeHtml(data.domain_reputation?.is_established ? `Established (${data.domain_reputation?.domain})` : 'Standard / Unranked')}
+          </span>
+        </div>
+        <div style="font-size: 0.85rem;">
+          <span style="color: var(--text-muted);">Registration / DNS / TLS:</span>
+          <span class="badge" style="margin-left: 6px; font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; font-weight: 500; background: rgba(100, 116, 139, 0.2); color: #cbd5e1;">
+            ${escapeHtml(`${data.domain_verification?.registration_status || 'unknown'} / ${data.domain_verification?.dns_status || 'unknown'} / ${data.domain_verification?.tls_status || 'unknown'}`)}
+          </span>
+          ${data.domain_verification?.domain_age_days != null ? `<span style="color: var(--text-muted); margin-left: 6px;">Registered ${Number(data.domain_verification.domain_age_days)} days ago</span>` : ''}
+        </div>
+      </div>
+      <div style="font-size: 0.85rem;">
+        <span style="color: var(--text-muted);">Final Assessment:</span>
+        <strong style="margin-left: 6px; letter-spacing: 0.5px; color: ${data.final_assessment === 'MALICIOUS' ? '#f87171' : (data.final_assessment === 'LIKELY LEGITIMATE' ? '#34d399' : '#fbbf24')};">
+          ${escapeHtml(data.final_assessment || (data.severity === 'Low' ? 'LIKELY LEGITIMATE' : (data.severity === 'Critical' ? 'MALICIOUS' : 'SUSPICIOUS / UNKNOWN')))}
+        </strong>
+      </div>
+    </div>
+    ` : ''}
 
     <!-- Highlighted spans (for messages) -->
     ${spansBlock}
@@ -391,12 +436,17 @@ async function loadHistory() {
         ? `<strong>${escapeHtml(r.target)}</strong><div style="font-size: 0.72rem; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden;" title="${escapeHtml(r.download_source_url)}">from: ${escapeHtml(r.download_source_url)}</div>`
         : escapeHtml(r.target);
 
+      const isLegit = ["legitimate", "benign", "legitimate / safe"].includes((r.prediction || "").toLowerCase());
+      const displayLikelihood = r.prediction_likelihood != null
+        ? (r.prediction_likelihood * 100).toFixed(1)
+        : (isLegit ? ((1.0 - r.probability) * 100).toFixed(1) : (r.probability * 100).toFixed(1));
+
       return `
         <tr>
           <td>${date}</td>
           <td><span class="badge-version">${typeIcon}${escapeHtml(r.input_type)}</span></td>
           <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${targetContent}</td>
-          <td><strong>${escapeHtml(r.prediction)}</strong> (${(r.probability * 100).toFixed(1)}%)</td>
+          <td><strong>${escapeHtml(r.prediction)}</strong> (${displayLikelihood}%)</td>
           <td>${r.risk_score} / 100</td>
           <td><span class="severity-tag ${sev}" style="padding: 2px 8px; font-size: 0.75rem;">${escapeHtml(r.severity)}</span></td>
           <td><strong>${escapeHtml(r.decision)}</strong></td>

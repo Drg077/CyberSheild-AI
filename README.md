@@ -30,13 +30,12 @@ Academic major project prototype implementing an AI-driven cyber threat predicti
                       └─────────────────────┼─────────────────────┘
                                             │
                                             ▼
-                                  LEARNED RISK FUSION
-                    Unified Risk Score = 100 × [Logistic Meta-Classifier]
-                               (Fallback to Weighted Baseline)
+                                  RISK SCORING BY INPUT
+       URL: Model + URL Features + Domain Evidence | Other: Modality Fusion
                                             │
                                             ▼
                                  SEVERITY CLASSIFICATION
-                     [0-29 Low] | [30-59 Med] | [60-79 High] | [80-100 Crit]
+                   URL: [0-29 Low] [30-49 Med] [50-89 High] [90-100 Crit]
                                             │
                       ┌─────────────────────┴─────────────────────┐
                       ▼                                           ▼
@@ -65,11 +64,59 @@ Academic major project prototype implementing an AI-driven cyber threat predicti
 
 - **Multi-Modal Detection Pipeline:** Three dedicated inspection pipelines covering URLs, executable binaries (PE files), and communication/email messages.
 - **GenAI & Human Phishing Message Detector:** Identifies AI-synthesized lures (GPT-4o style) and human social engineering using 24 stylometric features and transformer token attributions.
-- **Learned Risk Fusion:** Interpretable Logistic Regression meta-classifier handling partial evidence and multi-modal risk aggregation, with automatic fallback to weighted baselines.
+- **Learned Risk Fusion:** Interpretable Logistic Regression meta-classifier for supported non-URL modality scoring, with fallback to weighted baselines. URL scoring uses its evidence-based policy described below.
+- **URL Domain Verification:** Checks registration metadata through RDAP, DNS resolution, and HTTPS certificate validity/expiry. It does not load the submitted webpage, and these checks do not certify that its content is safe.
+- **Evidence-Based URL Risk:** Unified URL Risk combines the phishing model, URL signals, and supporting domain evidence. A confirmed threat-intelligence match sets a minimum score of 90.
 - **Formal Feature Contracts:** Enforces 100% schema alignment (`Training Schema == Inference Schema`) across URL (`v1.0.0`), PE (`v1.0.0`), and Message (`v1.0.0`) inputs.
 - **Zero In-Execution Risks:** Analyses URLs statically without navigation; parses Windows PE headers statically with `pefile`; inspects messages without executing active scripts.
 - **Explainable AI (SHAP & Span Highlights):** Computes exact feature attributions and visual token highlights, translated into human-readable banking security guidance.
 - **Chrome Browser Extension (MV3):** Connects to the centralized backend API for pre-navigation inspection and on-page warning banners.
+
+---
+
+## 2.1 Security Indicators & Mathematical Methodology
+
+The dashboard separates model likelihood, combined risk, and contextual risk. URL-specific scoring is described below; other scanners retain their own risk policies.
+
+### 1. Unified Risk Score (0–100)
+- **URL definition:** A combined risk index, not a model probability. URL scoring currently weights the configured model/context score at 65%, a mapped URL-feature risk signal at 25%, and domain verification/reputation evidence at 10%.
+- **URL signals:** The contextual URL indicators include numeric-IP hosts, suspicious terms, subdomain depth, missing HTTPS, and an unranked domain. The phishing model also evaluates the URL feature vector.
+- **Domain evidence:** RDAP registration status/age, DNS resolution, TLS validity, and domain reputation are supporting signals. An established domain with successful registration, DNS, and TLS checks receives only a small score reduction; these checks cannot cancel strong phishing evidence. Unranked domains have a minimum risk score of 15 and remain caution/unknown rather than being treated as confirmed phishing.
+- **Confirmed threat:** A positive match from configured threat-intelligence feeds sets a minimum Unified Risk of 90.
+- **URL risk bands:** 0–29: LOW | 30–49: MEDIUM | 50–89: HIGH | 90–100: CRITICAL. URL bands differ from thresholds used by other scanners.
+
+### 2. Model Phishing Likelihood (%)
+- **Definition:** The phishing classifier's output probability for the URL feature input. It is a model score, not a guarantee of correctness or a calibrated 85–90% certainty claim:
+  - Threat Predictions: $\text{Prediction Likelihood} = P(\text{threat}) \times 100\%$ (labeled `Phishing Likelihood` or `Malware Likelihood`).
+  - Legitimate Predictions: $\text{Prediction Likelihood} = [1.0 - P(\text{threat})] \times 100\%$ (labeled `Legitimate Likelihood`).
+- **Distinction from Unified Risk:** Model Phishing Likelihood comes from the URL model; Unified Risk combines model, URL-feature, and domain evidence. A low model likelihood can still accompany a Suspicious / Unknown result when there is insufficient evidence to call a domain legitimate.
+
+### 3. Contextual Risk Score (0–100)
+- **Definition:** An independent, deterministic risk score evaluating static environmental and structural threat indicators ($100 \times C_{\text{context}}$):
+  - **URL Context:** Numeric IP host (+0.40), banking keyword (+0.30), subdomain depth $\ge 2$ (+0.20), missing HTTPS (+0.10).
+  - **PE Malware Context:** Single binary section (+0.40), compilation year anomaly (+0.30), missing code section (+0.30).
+  - **Message Context:** Urgency lexicon (+0.35), credential solicitation (+0.35), generic greeting (+0.20), embedded link (+0.10).
+  - **Download Context:** Executable extension tier (+0.40), cross-domain redirect (+0.30), keyword match (+0.20), high entropy (+0.10).
+
+### URL registration, DNS, and certificate checks
+
+- The scanner uses IANA's RDAP bootstrap and the applicable registry for registration metadata, resolves the hostname, and performs a certificate-validating TLS handshake for HTTPS URLs when possible.
+- It does not request page content, follow redirects, or navigate to the destination website.
+- Registration status/domain age, DNS status, and TLS status/issuer/expiry are shown separately. Failed lookups are reported as unavailable or unknown, not as a clean result.
+- Registration and a valid TLS certificate establish infrastructure facts only. An old registered domain with valid TLS can still host phishing content; none of these checks certifies a site as safe.
+
+---
+
+## 2.2 Explainable AI (SHAP TreeExplainer) Methodology
+
+- **TreeExplainer Attribution:** Computes exact Shapley attributions in polynomial time $\mathcal{O}(T L D^2)$ for tree ensembles.
+- **Efficiency Axiom:** The attributions sum to the model's output deviation from the training background expectation:
+  $$f(\mathbf{x}) = \phi_0 + \sum_{i=1}^{M} \phi_i(\mathbf{x})$$
+- **Positive SHAP Values ($\phi_i > 0$):** Features that push the prediction towards the threat class (Elevated Risk Factor, red bar, $+|\phi_i|$).
+- **Negative SHAP Values ($\phi_i < 0$):** Features that pull the prediction away from the threat class (Mitigating/Benign Factor, green bar, $-|\phi_i|$).
+- **Feature Ranking:** Features are ranked by absolute SHAP impact: $\text{Rank}(i) \propto |\phi_i|$.
+- **Relative Bar Width Derivation:**
+  $$\text{Bar Width } (\%) = \min\left(100.0, \max\left(10.0, \frac{|\phi_i|}{\max_{j} |\phi_j|} \times 100.0\right)\right)$$
 
 ---
 
@@ -108,7 +155,7 @@ python run.py
 
 ## 4. API Endpoints
 
-- `POST /api/v1/analyze/url` — Analyzes a target URL for lexical/structural phishing indicators.
+- `POST /api/v1/analyze/url` — Analyzes URL features and returns model likelihood, combined risk, threat-intelligence result, domain reputation, and registration/DNS/TLS evidence when available.
 - `POST /api/v1/analyze/file` — Statically inspects a PE binary (.exe, .dll, .sys) for malicious anomalies.
 - `POST /api/v1/analyze/message` — Analyzes message/email text for GenAI-synthesized and social engineering phishing.
 - `GET /api/v1/health` — System status, schema versions, and model loading indicators.
@@ -153,7 +200,7 @@ All performance values reflect evaluation on unseen stratified test sets (zero f
 
 | Component | Architecture | Dataset | Test Size | Accuracy | Threat Recall | Precision | F1-Score | ROC-AUC | False Negatives |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Phishing Model** | Random Forest Ensemble | PhiUSIIL + Deep-Path URLs | 8,453 | **93.81%** | **95.64%** | **92.13%** | **0.9385** | **0.9857** | **182 / 8,453** |
+| **Phishing Model** | Random Forest | PhiUSIIL Phishing URL Dataset (UCI) | 8,512 | **93.02%** | **94.30%** | **91.71%** | **0.9298** | **0.9811** | **238 / 8,512** |
 | **Malware Model** | Random Forest PE Detector | ClaMP Static PE Headers | 684 | **99.27%** | **99.68%** | **98.73%** | **0.9920** | **0.9998** | **1 / 684** |
 | **GenAI Message Model** | Stylometric + DistilBERT | Opara GPT-4o + Nazario + Enron | TBD | **TBD** | **TBD** | **TBD** | **TBD** | **TBD** | **TBD** |
 | **Learned Risk Fusion** | Logistic Meta-Classifier | Multi-modal Held-out Splits | TBD | **TBD** | **TBD** | **TBD** | **TBD** | **TBD** | **TBD** |

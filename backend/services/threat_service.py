@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import uuid
 import logging
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 import joblib
 import pandas as pd
 from sqlalchemy.orm import Session
@@ -39,6 +40,9 @@ from explainable_ai.content_explainer import content_explainer
 from explainable_ai.explanation_formatter import ExplanationFormatter
 from database.repository import ThreatAnalysisRepository
 from backend.schemas.schemas import ThreatAnalysisResponse
+from backend.services.threat_intel_service import threat_intel_service
+from risk_engine.domain_reputation import domain_reputation_service
+from backend.services.domain_verification_service import domain_verification_service
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +73,18 @@ except Exception as e:
     logger.warning(f"Could not preload message stylometric model: {e}")
 
 class ThreatService:
+    @staticmethod
+    def _model_url_features(url: str) -> pd.DataFrame:
+        """Use stable URL structure for ML; opaque query values are high-noise.
+
+        The complete URL is still used by deterministic context checks and
+        displayed in the result. Query parameter names/lexical flags remain
+        available through the raw feature row passed to the context engine.
+        """
+        parsed = urlsplit(url if "://" in url else f"https://{url}")
+        structural_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+        return extract_url_features_df([structural_url])
+
     @classmethod
     def analyze_url(cls, url: str, db: Session) -> ThreatAnalysisResponse:
         """
@@ -76,40 +92,114 @@ class ThreatService:
         """
         clean_url = str(url).strip()
         
-        # 1. Feature extraction
-        features_df = extract_url_features_df([clean_url])
-        features_dict = features_df.iloc[0].to_dict()
+        # 1. Validate URL syntax before feature extraction. Plain text (e.g.
+        # "hello") is not a URL and must not receive a threat assessment.
+        from urllib.parse import urlsplit
+        candidate = clean_url if "://" in clean_url else f"https://{clean_url}"
+        try:
+            parsed_candidate = urlsplit(candidate)
+            hostname = parsed_candidate.hostname
+            valid_url = (
+                parsed_candidate.scheme in {"http", "https"}
+                and hostname is not None
+                and "." in hostname
+                and not hostname.startswith(".")
+                and not hostname.endswith(".")
+                and " " not in clean_url
+            )
+        except ValueError:
+            valid_url = False
+        if not valid_url:
+            raise ValueError("Enter a valid URL with a hostname, such as https://example.com.")
+
+        # 2. Feature extraction
+        raw_features_df = extract_url_features_df([clean_url])
+        features_dict = raw_features_df.iloc[0].to_dict()
+        model_features_df = cls._model_url_features(clean_url)
         
-        # 2. Machine learning inference
+        # 2. Machine learning inference. The champion emits the probability used
+        # during validation; do not apply an unversioned post-hoc transform here.
         if PHISHING_MODEL is not None:
-            phishing_prob = float(PHISHING_MODEL.predict_proba(features_df.values)[0, 1])
+            raw_prob = float(PHISHING_MODEL.predict_proba(raw_features_df.values)[0, 1])
+            structural_prob = float(PHISHING_MODEL.predict_proba(model_features_df.values)[0, 1])
+            phishing_prob = raw_prob
         else:
+            raw_prob = 0.50
+            structural_prob = 0.50
             phishing_prob = 0.50
-        prediction_label = "Phishing" if phishing_prob >= 0.50 else "Legitimate"
+
+        # Empirical decision threshold derived on validation split to reduce legitimate false positives
+        decision_threshold = getattr(settings, "PHISHING_DECISION_THRESHOLD", 0.55)
+
+        # 3. External Threat Intelligence & Domain Reputation evidence
+        threat_intel_res = threat_intel_service.check_url(clean_url)
+        threat_intel_dict = threat_intel_res.to_dict()
+
+        domain_rep_res = domain_reputation_service.evaluate(clean_url)
+        domain_rep_dict = domain_rep_res.to_dict()
+        domain_verification = domain_verification_service.evaluate(clean_url).to_dict()
+
+        # Opaque search/tracking query values can dominate lexical features.
+        # For ranked domains with no suspicious URL terms, use the stable
+        # hostname+path estimate; keep full-URL scoring for every other case.
+        explain_features_df = raw_features_df
+        if domain_rep_dict.get("is_established") and not features_dict.get("ContainsSuspiciousKeyword", 0.0):
+            phishing_prob = structural_prob
+            explain_features_df = model_features_df
         
-        # 3. Contextual evidence & Risk Engine
-        ctx_score = compute_url_context(features_dict)
+        # 4. Contextual evidence & Multi-Evidence Risk Fusion
+        ctx_score = compute_url_context(features_dict, domain_rep_dict)
         risk_eval = risk_engine.calculate_unified_risk(
             input_type="URL",
             p_phishing=phishing_prob,
-            context_score=ctx_score
+            context_score=ctx_score,
+            threat_intel=threat_intel_dict,
+            domain_reputation=domain_rep_dict,
+            domain_verification=domain_verification
         )
         
-        # 4. Explainable AI (SHAP)
-        attributions = phishing_explainer.explain(features_df, top_k=5)
+        # Harmonize prediction label with multi-evidence risk evaluation
+        if risk_eval.final_assessment == "MALICIOUS":
+            prediction_label = "Phishing"
+        elif risk_eval.final_assessment == "LIKELY LEGITIMATE":
+            prediction_label = "Legitimate"
+        elif phishing_prob >= decision_threshold:
+            # Preserve the model's class prediction while the separate final
+            # assessment communicates that evidence is not conclusive.
+            prediction_label = "Phishing"
+        else:
+            prediction_label = "Suspicious / Unknown"
+
+        # 5. Explainable AI (SHAP on the 20 URL model features)
+        attributions = phishing_explainer.explain(explain_features_df, top_k=5)
         formatted_xai = ExplanationFormatter.format_url_explanation(
             attributions=attributions,
             prediction_label=prediction_label,
-            probability=phishing_prob
+            probability=phishing_prob,
+            threat_intel=threat_intel_dict,
+            domain_reputation=domain_rep_dict,
+            final_assessment=risk_eval.final_assessment
         )
         
-        # 5. Decision Policy & Banking Action
+        # 6. Decision Policy & Banking Action
         decision_info = DecisionPolicy.get_decision(
             input_type="URL",
-            severity=risk_eval.severity
+            severity=risk_eval.severity,
+            final_assessment=risk_eval.final_assessment
         )
         
-        # 6. Database Persistence
+        # Determine accurate prediction likelihood and descriptive label
+        if prediction_label == "Phishing":
+            pred_likelihood = round(phishing_prob, 4)
+            pred_label = "Phishing Likelihood"
+        elif prediction_label == "Suspicious / Unknown":
+            pred_likelihood = round(phishing_prob, 4)
+            pred_label = "Model Phishing Likelihood"
+        else:
+            pred_likelihood = round(1.0 - phishing_prob, 4)
+            pred_label = "Legitimate Likelihood"
+
+        # 7. Database Persistence
         record_id = str(uuid.uuid4())
         now_utc = datetime.now(timezone.utc)
         
@@ -129,7 +219,16 @@ class ThreatService:
             "summary": formatted_xai["summary"],
             "top_features": formatted_xai["top_features"],
             "highlighted_spans": None,
-            "detector_probabilities": {"p_phishing": round(phishing_prob, 4)},
+            "detector_probabilities": {
+                "p_phishing": round(phishing_prob, 4),
+                "p_raw_phishing": round(raw_prob, 4),
+                "context_score": round(ctx_score, 4),
+                "domain_verification": domain_verification,
+                "domain_reputation": domain_rep_dict,
+                "threat_intel": threat_intel_dict,
+                "final_assessment": risk_eval.final_assessment
+            },
+            "context_score": round(ctx_score, 4),
             "model_version": "v1.0.0",
             "feature_schema_version": URLFeatureContract.SCHEMA_VERSION
         }
@@ -137,7 +236,7 @@ class ThreatService:
         repo = ThreatAnalysisRepository(db)
         repo.create(db_record)
         
-        # 7. Formulate structured response
+        # 8. Formulate structured response
         return ThreatAnalysisResponse(
             id=record_id,
             timestamp=now_utc.isoformat(),
@@ -156,7 +255,19 @@ class ThreatService:
             model_version="v1.0.0",
             feature_schema_version=URLFeatureContract.SCHEMA_VERSION,
             disclaimer=decision_info["disclaimer"],
-            detector_probabilities={"p_phishing": round(phishing_prob, 4)}
+            detector_probabilities={
+                "p_phishing": round(phishing_prob, 4),
+                "p_raw_phishing": round(raw_prob, 4),
+                "context_score": round(ctx_score, 4)
+            },
+            context_score=round(ctx_score, 4),
+            prediction_likelihood=pred_likelihood,
+            prediction_likelihood_label=pred_label,
+            threat_intel=threat_intel_dict,
+            domain_reputation=domain_rep_dict,
+            domain_verification=domain_verification,
+            final_assessment=risk_eval.final_assessment,
+            evidence_breakdown=formatted_xai.get("evidence_breakdown")
         )
 
     @classmethod
@@ -201,6 +312,14 @@ class ThreatService:
             severity=risk_eval.severity
         )
         
+        # Determine accurate prediction likelihood and descriptive label
+        if prediction_label == "Malicious":
+            pred_likelihood = round(malware_prob, 4)
+            pred_label = "Malware Likelihood"
+        else:
+            pred_likelihood = round(1.0 - malware_prob, 4)
+            pred_label = "Legitimate Likelihood"
+
         # 5. Database Persistence
         record_id = str(uuid.uuid4())
         now_utc = datetime.now(timezone.utc)
@@ -221,7 +340,8 @@ class ThreatService:
             "summary": formatted_xai["summary"],
             "top_features": formatted_xai["top_features"],
             "highlighted_spans": None,
-            "detector_probabilities": {"p_malware": round(malware_prob, 4)},
+            "detector_probabilities": {"p_malware": round(malware_prob, 4), "context_score": round(ctx_score, 4)},
+            "context_score": round(ctx_score, 4),
             "model_version": "v1.0.0",
             "feature_schema_version": PEFeatureContract.SCHEMA_VERSION
         }
@@ -248,7 +368,10 @@ class ThreatService:
             model_version="v1.0.0",
             feature_schema_version=PEFeatureContract.SCHEMA_VERSION,
             disclaimer=decision_info["disclaimer"],
-            detector_probabilities={"p_malware": round(malware_prob, 4)}
+            detector_probabilities={"p_malware": round(malware_prob, 4), "context_score": round(ctx_score, 4)},
+            context_score=round(ctx_score, 4),
+            prediction_likelihood=pred_likelihood,
+            prediction_likelihood_label=pred_label
         )
 
     @classmethod
@@ -321,11 +444,21 @@ class ThreatService:
             severity=risk_eval.severity
         )
         
+        # Determine accurate prediction likelihood and descriptive label
+        if prediction_label in ["ai_phishing", "human_phishing"]:
+            pred_likelihood = round(threat_prob, 4)
+            pred_label = "Phishing Likelihood"
+        else:
+            pred_likelihood = round(1.0 - threat_prob, 4)
+            pred_label = "Legitimate Likelihood"
+
         # 6. Database Persistence
         record_id = str(uuid.uuid4())
         now_utc = datetime.now(timezone.utc)
         target_display = clean_text[:120] + "..." if len(clean_text) > 120 else clean_text
         
+        detector_probs["context_score"] = round(ctx_score, 4)
+
         db_record = {
             "id": record_id,
             "timestamp": now_utc,
@@ -343,6 +476,7 @@ class ThreatService:
             "top_features": formatted_xai["top_features"],
             "highlighted_spans": highlighted_spans,
             "detector_probabilities": detector_probs,
+            "context_score": round(ctx_score, 4),
             "model_version": "v1.0.0",
             "feature_schema_version": MessageFeatureContract.SCHEMA_VERSION
         }
@@ -368,6 +502,9 @@ class ThreatService:
             top_features=formatted_xai["top_features"],
             highlighted_spans=highlighted_spans,
             detector_probabilities=detector_probs,
+            context_score=round(ctx_score, 4),
+            prediction_likelihood=pred_likelihood,
+            prediction_likelihood_label=pred_label,
             model_version="v1.0.0",
             feature_schema_version=MessageFeatureContract.SCHEMA_VERSION,
             disclaimer=decision_info["disclaimer"]
@@ -401,13 +538,15 @@ class ThreatService:
             if clean_source_url:
                 try:
                     features_src_df = extract_url_features_df([clean_source_url])
-                    p_src = float(PHISHING_MODEL.predict_proba(features_src_df.values)[0, 1])
+                    raw_src = float(PHISHING_MODEL.predict_proba(features_src_df.values)[0, 1])
+                    p_src = raw_src
                 except Exception as e:
                     logger.warning(f"Error evaluating source_url phishing: {e}")
             if clean_download_url:
                 try:
                     features_dl_df = extract_url_features_df([clean_download_url])
-                    p_dl = float(PHISHING_MODEL.predict_proba(features_dl_df.values)[0, 1])
+                    raw_dl = float(PHISHING_MODEL.predict_proba(features_dl_df.values)[0, 1])
+                    p_dl = raw_dl
                 except Exception as e:
                     logger.warning(f"Error evaluating download_url phishing: {e}")
 
@@ -465,6 +604,14 @@ class ThreatService:
             severity=risk_eval.severity
         )
 
+        # Determine accurate prediction likelihood and descriptive label
+        if prediction_label in ["Phishing / Suspicious", "High-Risk Executable", "Medium-Risk File"]:
+            pred_likelihood = round(max_phishing_prob, 4) if max_phishing_prob >= 0.50 else round(ctx_score, 4)
+            pred_label = "Phishing Likelihood" if max_phishing_prob >= 0.50 else "Threat Likelihood"
+        else:
+            pred_likelihood = round(1.0 - max_phishing_prob, 4)
+            pred_label = "Legitimate Likelihood"
+
         # 6. Database Persistence
         record_id = str(uuid.uuid4())
         now_utc = datetime.now(timezone.utc)
@@ -473,7 +620,8 @@ class ThreatService:
             "p_source_phishing": round(p_src, 4),
             "p_download_phishing": round(p_dl, 4),
             "max_phishing_prob": round(max_phishing_prob, 4),
-            "context_modifier": round(ctx_score, 4)
+            "context_modifier": round(ctx_score, 4),
+            "context_score": round(ctx_score, 4)
         }
 
         db_record = {
@@ -495,6 +643,7 @@ class ThreatService:
             "top_features": formatted_xai["top_features"],
             "highlighted_spans": None,
             "detector_probabilities": detector_probs,
+            "context_score": round(ctx_score, 4),
             "model_version": "v1.0.0",
             "feature_schema_version": DownloadFeatureContract.SCHEMA_VERSION
         }
@@ -520,6 +669,9 @@ class ThreatService:
             top_features=formatted_xai["top_features"],
             highlighted_spans=None,
             detector_probabilities=detector_probs,
+            context_score=round(ctx_score, 4),
+            prediction_likelihood=pred_likelihood,
+            prediction_likelihood_label=pred_label,
             download_source_url=clean_source_url,
             download_url=clean_download_url,
             model_version="v1.0.0",

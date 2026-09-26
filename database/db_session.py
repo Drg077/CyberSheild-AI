@@ -43,6 +43,9 @@ def init_db():
                 if "download_url" not in existing_columns:
                     conn.execute(text("ALTER TABLE threat_analyses ADD COLUMN download_url VARCHAR(2048)"))
                     conn.commit()
+                if "context_score" not in existing_columns:
+                    conn.execute(text("ALTER TABLE threat_analyses ADD COLUMN context_score FLOAT DEFAULT 0.0"))
+                    conn.commit()
         except Exception:
             pass
 

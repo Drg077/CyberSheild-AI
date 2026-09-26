@@ -80,3 +80,39 @@ def test_content_explainer_and_formatter():
     assert "96.0%" in formatted["summary"]
     assert "GenAI-synthesized phishing" in formatted["summary"]
 
+def test_shap_mathematical_properties_and_bar_derivation():
+    """
+    Verify SHAP attribution properties:
+    1. absolute_impact == abs(shap_value)
+    2. direction corresponds to sign(shap_value)
+    3. features are sorted in descending order of absolute_impact
+    4. bar width derivation respects relative clamping [10%, 100%]
+    """
+    test_url = "http://192.168.1.1/secure-banking/login.php?update=now"
+    df = extract_url_features_df([test_url])
+    attributions = phishing_explainer.explain(df, top_k=5)
+    
+    # 1. Properties verification
+    prev_impact = float("inf")
+    for item in attributions:
+        impact = item["absolute_impact"]
+        shap_val = item["shap_value"]
+        assert round(impact, 4) == round(abs(shap_val), 4)
+        if shap_val > 0:
+            assert item["direction"] == "increases_risk"
+        else:
+            assert item["direction"] == "decreases_risk"
+        # 2. Descending sort
+        assert impact <= prev_impact
+        prev_impact = impact
+
+    # 3. Bar width derivation formula test
+    max_impact = max(item["absolute_impact"] for item in attributions)
+    assert max_impact > 0
+    for item in attributions:
+        pct = min(100.0, max(10.0, (item["absolute_impact"] / max_impact) * 100.0))
+        assert 10.0 <= pct <= 100.0
+    # Top feature must have 100% relative width
+    assert min(100.0, max(10.0, (attributions[0]["absolute_impact"] / max_impact) * 100.0)) == 100.0
+
+

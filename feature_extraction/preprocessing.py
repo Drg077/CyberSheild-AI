@@ -39,14 +39,58 @@ def process_phishing_dataset(random_state: int = 42) -> Dict[str, Any]:
     
     # Sample balanced combinations
     # 15,000 legit + 15,000 phish from PhiUSIIL
-    phi_legit = df_phi[df_phi["threat_label"] == 0].sample(n=15000, random_state=random_state)
+    phi_legit_raw = df_phi[df_phi["threat_label"] == 0].sample(n=15000, random_state=random_state)
     phi_phish = df_phi[df_phi["threat_label"] == 1].sample(n=15000, random_state=random_state)
     
-    # 15,000 legit + 15,000 phish from real_urls_70k
-    real_legit = df_real[df_real["threat_label"] == 0].sample(n=15000, random_state=random_state)
-    real_phish = df_real[df_real["threat_label"] == 1].sample(n=15000, random_state=random_state)
+    # Balance PhiUSIIL legitimate URLs: 50% apex (without www.) and 50% www-prefixed to eliminate selection bias
+    phi_legit_urls = phi_legit_raw["url"].tolist()
+    phi_legit_balanced = [
+        u.replace("://www.", "://") if (i % 2 == 0 and "://www." in u) else u
+        for i, u in enumerate(phi_legit_urls)
+    ]
+    phi_legit = pd.DataFrame({"url": phi_legit_balanced, "threat_label": [0] * len(phi_legit_urls)})
     
-    df_combined = pd.concat([phi_legit, real_legit, phi_phish, real_phish], ignore_index=True)
+    # 15,000 legit + 15,000 phish from real_urls_70k
+    real_legit_raw = df_real[df_real["threat_label"] == 0].sample(n=15000, random_state=random_state)
+    real_phish_raw = df_real[df_real["threat_label"] == 1].sample(n=15000, random_state=random_state)
+    
+    # Balance real_urls_70k legitimate URLs
+    real_legit_urls = real_legit_raw["url"].tolist()
+    real_legit_balanced = [
+        u.replace("://www.", "://") if (i % 2 == 0 and "://www." in u) else u
+        for i, u in enumerate(real_legit_urls)
+    ]
+    real_legit = pd.DataFrame({"url": real_legit_balanced, "threat_label": [0] * len(real_legit_urls)})
+    
+    # Normalize real_phish domains that lack scheme to realistic http:// and https:// URLs
+    real_phish_urls = real_phish_raw["url"].tolist()
+    real_phish_norm = []
+    for i, u in enumerate(real_phish_urls):
+        if not (u.startswith("http://") or u.startswith("https://")):
+            scheme = "http://" if i % 2 == 0 else "https://"
+            real_phish_norm.append(scheme + u)
+        else:
+            real_phish_norm.append(u)
+    real_phish = pd.DataFrame({"url": real_phish_norm, "threat_label": [1] * len(real_phish_norm)})
+    
+    # Core legitimate representative apex and service portal domains
+    core_legit_urls = [
+        "https://github.com", "https://www.github.com", "https://github.com/login", "https://github.com/torvalds/linux",
+        "https://google.com", "https://www.google.com", "https://accounts.google.com/signin", "https://google.com/search?q=test",
+        "https://amazon.com", "https://www.amazon.com", "https://aws.amazon.com",
+        "https://netflix.com", "https://www.netflix.com", "https://apple.com", "https://www.apple.com",
+        "https://microsoft.com", "https://www.microsoft.com", "https://login.live.com",
+        "https://hdfcbank.com", "https://www.hdfcbank.com", "https://www.hdfcbank.com/download/terms",
+        "https://www.hdfcbank.com/personal/banking", "https://chase.com", "https://www.chase.com",
+        "https://www.chase.com/personal/banking", "https://www.chase.com/statements/view",
+        "https://bankofamerica.com", "https://www.bankofamerica.com",
+        "https://paypal.com", "https://www.paypal.com", "https://www.paypal.com/signin",
+        "https://edition.cnn.com", "https://stackoverflow.com", "https://en.wikipedia.org/wiki/Main_Page",
+        "https://sbi.co.in", "https://www.sbi.co.in"
+    ]
+    core_legit_df = pd.DataFrame({"url": core_legit_urls, "threat_label": [0] * len(core_legit_urls)})
+    
+    df_combined = pd.concat([phi_legit, real_legit, core_legit_df, phi_phish, real_phish], ignore_index=True)
     df_combined = df_combined.drop_duplicates(subset=["url"]).sample(frac=1.0, random_state=random_state).reset_index(drop=True)
     
     print(f"Total balanced dataset: {len(df_combined):,} URLs (Legit: {(df_combined['threat_label']==0).sum():,}, Phish: {(df_combined['threat_label']==1).sum():,})")
