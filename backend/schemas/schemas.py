@@ -60,6 +60,7 @@ class ThreatAnalysisResponse(BaseModel):
     domain_verification: Optional[Dict[str, Any]] = None
     final_assessment: Optional[str] = None
     evidence_breakdown: Optional[Dict[str, Any]] = None
+    risk_score_breakdown: Optional[Dict[str, Any]] = None
 
 class HistoryItemResponse(BaseModel):
     id: str

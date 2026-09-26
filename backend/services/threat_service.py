@@ -155,7 +155,8 @@ class ThreatService:
             context_score=ctx_score,
             threat_intel=threat_intel_dict,
             domain_reputation=domain_rep_dict,
-            domain_verification=domain_verification
+            domain_verification=domain_verification,
+            url_features=features_dict
         )
         
         # Harmonize prediction label with multi-evidence risk evaluation
@@ -199,6 +200,14 @@ class ThreatService:
             pred_likelihood = round(1.0 - phishing_prob, 4)
             pred_label = "Legitimate Likelihood"
 
+        score_breakdown = dict(risk_eval.risk_score_breakdown)
+        score_breakdown.update({
+            "model_input": "hostname and path (query excluded)" if explain_features_df is model_features_df else "complete URL",
+            "displayed_likelihood": pred_likelihood,
+            "displayed_likelihood_label": pred_label,
+            "contextual_risk_percent": round(ctx_score * 100.0, 1),
+        })
+
         # 7. Database Persistence
         record_id = str(uuid.uuid4())
         now_utc = datetime.now(timezone.utc)
@@ -226,7 +235,8 @@ class ThreatService:
                 "domain_verification": domain_verification,
                 "domain_reputation": domain_rep_dict,
                 "threat_intel": threat_intel_dict,
-                "final_assessment": risk_eval.final_assessment
+                "final_assessment": risk_eval.final_assessment,
+                "risk_score_breakdown": score_breakdown
             },
             "context_score": round(ctx_score, 4),
             "model_version": "v1.0.0",
@@ -267,7 +277,8 @@ class ThreatService:
             domain_reputation=domain_rep_dict,
             domain_verification=domain_verification,
             final_assessment=risk_eval.final_assessment,
-            evidence_breakdown=formatted_xai.get("evidence_breakdown")
+            evidence_breakdown=formatted_xai.get("evidence_breakdown"),
+            risk_score_breakdown=score_breakdown
         )
 
     @classmethod

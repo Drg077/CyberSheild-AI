@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CyberShield AI | Intelligent Banking Threat Prediction</title>
-  <link rel="stylesheet" href="/static/css/styles.css">
+  <link rel="stylesheet" href="/static/css/styles.css?v=score-hover-card-2">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -43,10 +43,6 @@
       <button class="tab-btn" data-tab="file-tab">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
         Static PE Malware Scanner
-      </button>
-      <button class="tab-btn" data-tab="message-tab">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        Message Threat Scanner
       </button>
       <button class="tab-btn" data-tab="history-tab">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -119,36 +115,7 @@
         <div id="fileResultContainer" class="result-container" style="display:none;"></div>
       </section>
 
-      <!-- TAB 3: MESSAGE SCANNER (GenAI Phishing) -->
-      <section id="message-tab" class="tab-content">
-        <div class="card scan-card">
-          <div class="card-header">
-            <h2>Inspect Suspicious Message / Email Content</h2>
-            <p>Analyzes text for GenAI-synthesized and social engineering phishing cues using 24 stylometric features and token span attributions.</p>
-          </div>
-          <form id="messageForm" class="scan-form">
-            <div class="form-group" style="margin-bottom: 16px;">
-              <textarea id="messageInput" rows="6" class="form-control" style="width:100%; border-radius:8px; padding:12px; font-family:inherit; background:var(--bg-card); color:inherit; border:1px solid var(--border-color);" placeholder="Paste email body, SMS notice, or message text here (min 10 characters)..." required></textarea>
-            </div>
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <div class="sample-pills">
-                <span class="sample-label">Try test cases:</span>
-                <button type="button" class="sample-msg-btn" data-msg="Dear customer, your monthly electronic statement is ready for download in your online banking documents repository.">Legitimate Notice</button>
-                <button type="button" class="sample-msg-btn danger" data-msg="Dear Customer, your bank account has been suspended immediately due to unusual activity. Verify your password and OTP within 24 hours at http://verify-bank.com.">Human Phishing</button>
-                <button type="button" class="sample-msg-btn danger" data-msg="Dear User, we detected unauthorized login access from an unknown IP address. Please immediately verify your KYC credentials and account number to prevent account closure.">GenAI Synthetic Phishing</button>
-              </div>
-              <button type="submit" id="messageSubmitBtn" class="primary-btn">
-                <span class="btn-text">Analyze Message</span>
-                <span class="btn-spinner" style="display:none;"></span>
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <div id="messageResultContainer" class="result-container" style="display:none;"></div>
-      </section>
-
-      <!-- TAB 4: AUDIT HISTORY -->
+      <!-- TAB 3: AUDIT HISTORY -->
       <section id="history-tab" class="tab-content">
         <div class="card">
           <div class="card-header history-header">
@@ -186,10 +153,11 @@
               </tbody>
             </table>
           </div>
+          <div id="historyDetailContainer" class="result-container" style="display:none; margin-top: 20px;"></div>
         </div>
       </section>
 
-      <!-- TAB 5: MODELS & EVALUATION -->
+      <!-- TAB 4: MODELS & EVALUATION -->
       <section id="models-tab" class="tab-content">
         <div class="card">
           <div class="card-header">

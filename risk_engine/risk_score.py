@@ -3,7 +3,7 @@ Unified Risk Score Calculation Engine.
 Calculates unified 0-100 risk score based on model evidence and validated contextual indicators.
 Strictly uses input-specific configurations (URL vs File).
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
 from risk_engine.thresholds import ThresholdConfig, SeverityLevel
 from backend.config import settings
@@ -19,6 +19,7 @@ class RiskAssessment:
     threat_intel: Optional[Dict[str, Any]] = None
     domain_reputation: Optional[Dict[str, Any]] = None
     final_assessment: Optional[str] = None
+    risk_score_breakdown: Dict[str, Any] = field(default_factory=dict)
 
 def compute_url_context(
     features: Dict[str, float],
@@ -137,7 +138,8 @@ class RiskAnalysisEngine:
         context_score: float = 0.0,
         threat_intel: Optional[Dict[str, Any]] = None,
         domain_reputation: Optional[Dict[str, Any]] = None,
-        domain_verification: Optional[Dict[str, Any]] = None
+        domain_verification: Optional[Dict[str, Any]] = None,
+        url_features: Optional[Dict[str, float]] = None
     ) -> RiskAssessment:
         p_clamped = max(0.0, min(1.0, float(phishing_probability)))
         c_clamped = max(0.0, min(1.0, float(context_score)))
@@ -178,19 +180,50 @@ class RiskAnalysisEngine:
         elif verification.get("tls_status") in {"unavailable", "not_checked_no_dns"}:
             domain_risk += 3.0
 
-        combined = (100.0 * (self.w_url_model * p_clamped + self.w_url_context * c_clamped))
-        combined = (0.65 * combined) + (0.25 * feature_risk) + (0.10 * min(30.0, domain_risk))
+        base_score = 100.0 * (self.w_url_model * p_clamped + self.w_url_context * c_clamped)
+        capped_domain_risk = min(30.0, domain_risk)
+        combined = (0.65 * base_score) + (0.25 * feature_risk) + (0.10 * capped_domain_risk)
+        weighted_score = combined
+        established_domain_adjustment = 0.0
         if (is_established and verification.get("registration_status") == "registered"
                 and verification.get("dns_status") == "resolves" and verification.get("tls_status") == "valid"):
-            combined -= 2.0
+            established_domain_adjustment = -2.0
+            combined += established_domain_adjustment
         elif not is_established:
             # Unranked domains with ordinary structure start in the caution
             # band, but this floor alone never calls them malicious.
             combined = max(15.0, combined)
+        pre_override_score = combined
         risk_score = max(0.0, min(100.0, combined))
         if confirmed_threat:
             risk_score = max(90.0, risk_score)
         risk_score = round(risk_score, 1)
+
+        feature_values = url_features or {}
+        risk_score_breakdown = {
+            "model_phishing_probability": round(p_clamped, 4),
+            "base_score": round(base_score, 2),
+            "base_model_weight": round(self.w_url_model, 4),
+            "base_context_weight": round(self.w_url_context, 4),
+            "context_score": round(c_clamped, 4),
+            "feature_risk": round(feature_risk, 2),
+            "weighted_score": round(weighted_score, 2),
+            "domain_evidence_raw": round(domain_risk, 2),
+            "domain_evidence_capped": round(capped_domain_risk, 2),
+            "established_domain_adjustment": established_domain_adjustment,
+            "unranked_domain_floor_applied": bool(not is_established and pre_override_score < 15.0),
+            "threat_intel_override": confirmed_threat,
+            "pre_override_score": round(pre_override_score, 2),
+            "numeric_ip_host": bool(feature_values.get("IsDomainIP", 0.0)),
+            "suspicious_keyword": bool(feature_values.get("ContainsSuspiciousKeyword", 0.0)),
+            "subdomain_depth": float(feature_values.get("NoOfSubDomain", 0.0)),
+            "https_enabled": bool(feature_values.get("IsHTTPS", 1.0)),
+            "domain_established": is_established,
+            "domain_age_days": age_days,
+            "registration_status": verification.get("registration_status", "unknown"),
+            "dns_status": verification.get("dns_status", "unknown"),
+            "tls_status": verification.get("tls_status", "unknown"),
+        }
 
         # Agreed score bands: 0–29 low, 30–49 medium, 50–89 high, 90–100 critical.
         if risk_score < 30.0:
@@ -225,7 +258,8 @@ class RiskAnalysisEngine:
             weights={"model": round(self.w_url_model, 4), "context": round(self.w_url_context, 4)},
             threat_intel=threat_intel,
             domain_reputation=domain_reputation,
-            final_assessment=final_assessment
+            final_assessment=final_assessment,
+            risk_score_breakdown=risk_score_breakdown
         )
         
     def calculate_file_risk(
@@ -323,7 +357,8 @@ class RiskAnalysisEngine:
         context_score: float = 0.0,
         threat_intel: Optional[Dict[str, Any]] = None,
         domain_reputation: Optional[Dict[str, Any]] = None,
-        domain_verification: Optional[Dict[str, Any]] = None
+        domain_verification: Optional[Dict[str, Any]] = None,
+        url_features: Optional[Dict[str, float]] = None
     ) -> RiskAssessment:
         """
         Calculates unified risk using learned FusionModel if available,
@@ -336,7 +371,8 @@ class RiskAnalysisEngine:
                 context_score=context_score,
                 threat_intel=threat_intel,
                 domain_reputation=domain_reputation,
-                domain_verification=domain_verification
+                domain_verification=domain_verification,
+                url_features=url_features
             )
 
         from risk_engine.fusion_model import fusion_model

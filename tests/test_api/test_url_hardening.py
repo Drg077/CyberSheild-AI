@@ -76,6 +76,26 @@ def test_unverified_status_keeps_domain_cautious_without_fake_model_probability(
     assert data["prediction_likelihood_label"] == "Model Phishing Likelihood"
     assert data["domain_verification"]["registration_status"] == "reserved"
 
+def test_url_score_breakdown_matches_returned_values_and_history():
+    response = client.post(
+        "/api/v1/analyze/url",
+        json={"url": "https://portal-security-update.net/account/login"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    breakdown = data["risk_score_breakdown"]
+
+    assert breakdown["model_phishing_probability"] == data["probability"]
+    assert breakdown["context_score"] == data["context_score"]
+    assert breakdown["feature_risk"] >= 0
+    assert breakdown["domain_evidence_capped"] <= 30
+    assert breakdown["model_input"] == "complete URL"
+    assert breakdown["displayed_likelihood"] == data["prediction_likelihood"]
+
+    detail = client.get(f"/api/v1/history/{data['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["risk_score_breakdown"] == breakdown
+
 def test_document_sharing_language_on_unknown_domain_is_cautioned():
     response = client.post(
         "/api/v1/analyze/url",

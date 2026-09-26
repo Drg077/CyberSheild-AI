@@ -99,7 +99,8 @@ def get_record_detail(record_id: str, db: Session = Depends(get_db)):
         threat_intel=record.detector_probabilities.get("threat_intel") if record.detector_probabilities and isinstance(record.detector_probabilities.get("threat_intel"), dict) else None,
         domain_reputation=record.detector_probabilities.get("domain_reputation") if record.detector_probabilities and isinstance(record.detector_probabilities.get("domain_reputation"), dict) else None,
         domain_verification=record.detector_probabilities.get("domain_verification") if record.detector_probabilities and isinstance(record.detector_probabilities.get("domain_verification"), dict) else None,
-        final_assessment=record.detector_probabilities.get("final_assessment") if record.detector_probabilities and isinstance(record.detector_probabilities.get("final_assessment"), str) else None
+        final_assessment=record.detector_probabilities.get("final_assessment") if record.detector_probabilities and isinstance(record.detector_probabilities.get("final_assessment"), str) else None,
+        risk_score_breakdown=record.detector_probabilities.get("risk_score_breakdown") if record.detector_probabilities and isinstance(record.detector_probabilities.get("risk_score_breakdown"), dict) else None
     )
 
 @router.delete("", response_model=dict)

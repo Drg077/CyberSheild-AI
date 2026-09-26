@@ -6,7 +6,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initTabs();
   initUrlScanner();
   initFileScanner();
-  initMessageScanner();
   initHistory();
   checkSystemHealth();
 });
@@ -208,56 +207,32 @@ function initFileScanner() {
   });
 }
 
-// 5. Message Scanner (GenAI Phishing)
-function initMessageScanner() {
-  const form = document.getElementById("messageForm");
-  const input = document.getElementById("messageInput");
-  const btn = document.getElementById("messageSubmitBtn");
-  const resultContainer = document.getElementById("messageResultContainer");
+// 6. Render Threat Assessment Result
+function scoreExplanationCard(title, formula, rows, note) {
+  const rowsMarkup = rows.map((row) => `
+    <div class="score-explainer-row">
+      <span>${escapeHtml(row.label)}</span>
+      <strong>${escapeHtml(row.value)}</strong>
+    </div>
+  `).join("");
 
-  document.querySelectorAll(".sample-msg-btn").forEach(btnSample => {
-    btnSample.addEventListener("click", () => {
-      input.value = btnSample.dataset.msg;
-      form.dispatchEvent(new Event("submit"));
-    });
-  });
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const text = input.value.trim();
-    if (!text || text.length < 10) {
-      alert("Message text must be at least 10 characters long.");
-      return;
-    }
-
-    setLoading(btn, true);
-    resultContainer.style.display = "none";
-
-    try {
-      const response = await fetch("/api/v1/analyze/message", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text })
-      });
-
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.detail || "Message analysis failed");
-      }
-
-      const result = await response.json();
-      result.rawInputText = text;
-      renderResult(resultContainer, result);
-      updateHistoryBadge();
-    } catch (error) {
-      alert("Message analysis error: " + error.message);
-    } finally {
-      setLoading(btn, false);
-    }
-  });
+  return `
+    <div class="score-explainer" role="tooltip" hidden>
+      <div class="score-explainer-heading">
+        <span class="score-explainer-icon" aria-hidden="true">ƒ</span>
+        <div>
+          <span class="score-explainer-kicker">Score breakdown</span>
+          <h4>${escapeHtml(title)}</h4>
+        </div>
+        <span class="score-explainer-tag">How it works</span>
+      </div>
+      <div class="score-explainer-formula">${escapeHtml(formula)}</div>
+      <div class="score-explainer-rows">${rowsMarkup}</div>
+      <div class="score-explainer-note">${escapeHtml(note)}</div>
+    </div>
+  `;
 }
 
-// 6. Render Threat Assessment Result
 function renderResult(container, data) {
   const sevLower = data.severity.toLowerCase();
   
@@ -303,6 +278,57 @@ function renderResult(container, data) {
   const predictionLikelihoodLabel = data.prediction_likelihood_label || 
     (isLegit ? "Legitimate Likelihood" : (data.prediction.toLowerCase().includes("suspicious") ? "Model Phishing Likelihood" : (data.prediction.toLowerCase().includes("mal") ? "Malware Likelihood" : "Phishing Likelihood")));
   const contextScoreVal = ((data.context_score != null ? data.context_score : 0.0) * 100).toFixed(1);
+  const scoreBreakdown = data.risk_score_breakdown || {};
+  const isUrlResult = data.input_type === "URL";
+  const modelProbability = Number(scoreBreakdown.model_phishing_probability ?? data.probability ?? 0);
+  const shownLikelihood = Number(scoreBreakdown.displayed_likelihood ?? data.prediction_likelihood ?? modelProbability);
+  const contextRows = [
+    { label: "Numeric IP address", value: scoreBreakdown.numeric_ip_host ? "+0.40 applied" : "Not detected" },
+    { label: "Suspicious URL wording", value: scoreBreakdown.suspicious_keyword ? "+0.30 applied" : "Not detected" },
+    { label: `Subdomain depth (${Number(scoreBreakdown.subdomain_depth || 0)})`, value: Number(scoreBreakdown.subdomain_depth || 0) >= 2 ? "+0.20 applied" : "Below threshold" },
+    { label: "HTTPS", value: scoreBreakdown.https_enabled === false ? "+0.10 for HTTP" : "HTTPS present" },
+    { label: "Domain reputation", value: scoreBreakdown.domain_established === false ? "+0.10 unranked" : "Established" },
+  ];
+  const modelRows = [
+    { label: "Model phishing probability", value: `${(modelProbability * 100).toFixed(1)}%` },
+    { label: "Displayed result", value: `${predictionLikelihoodVal}%` },
+    { label: "Model input", value: scoreBreakdown.model_input || "URL feature vector" },
+  ];
+  const modelCard = scoreExplanationCard(
+    predictionLikelihoodLabel,
+    isLegit ? `100 × (1 − ${modelProbability.toFixed(4)}) = ${(shownLikelihood * 100).toFixed(1)}%` : `100 × ${modelProbability.toFixed(4)} = ${(shownLikelihood * 100).toFixed(1)}%`,
+    modelRows,
+    "This is the model output for the URL pattern, not a guarantee of accuracy."
+  );
+  const contextCard = scoreExplanationCard(
+    "Contextual Risk",
+    `100 × ${Number(data.context_score || 0).toFixed(2)} = ${contextScoreVal}`,
+    isUrlResult ? contextRows : [{ label: "Context signals", value: `${contextScoreVal}/100` }],
+    "Context is a deterministic signal score. It is one input to Unified Risk, not a phishing probability."
+  );
+  const domainEvidence = Number(scoreBreakdown.domain_evidence_capped ?? 0).toFixed(1);
+  const baseScore = Number(scoreBreakdown.base_score ?? 0);
+  const weightedScore = Number(scoreBreakdown.weighted_score ?? data.risk_score);
+  const riskFormula = isUrlResult
+    ? `0.65 × ${baseScore.toFixed(2)} + 0.25 × ${Number(scoreBreakdown.feature_risk ?? 0).toFixed(1)} + 0.10 × ${domainEvidence} = ${weightedScore.toFixed(2)}${weightedScore !== Number(data.risk_score) ? ` → ${data.risk_score} after adjustments` : ""}`
+    : `Model and contextual evidence combine to produce a risk score of ${data.risk_score}`;
+  const riskRows = isUrlResult ? [
+    { label: "Model + context base", value: `100 × (${Number(scoreBreakdown.base_model_weight ?? 0.85).toFixed(2)} × ${modelProbability.toFixed(4)} + ${Number(scoreBreakdown.base_context_weight ?? 0.15).toFixed(2)} × ${Number(data.context_score || 0).toFixed(2)}) = ${baseScore.toFixed(2)}` },
+    { label: "URL-feature risk", value: Number(scoreBreakdown.feature_risk ?? 0).toFixed(1) },
+    { label: "Domain evidence (capped at 30)", value: domainEvidence },
+    ...(Number(scoreBreakdown.established_domain_adjustment || 0) ? [{ label: "Established domain adjustment", value: "−2.0" }] : []),
+    ...(scoreBreakdown.unranked_domain_floor_applied ? [{ label: "Unranked-domain minimum", value: "15 applied" }] : []),
+    ...(scoreBreakdown.threat_intel_override ? [{ label: "Confirmed threat match", value: "90 minimum applied" }] : []),
+  ] : [
+    { label: "Model probability", value: `${(Number(data.probability || 0) * 100).toFixed(1)}%` },
+    { label: "Contextual risk", value: `${contextScoreVal}/100` },
+  ];
+  const riskCard = scoreExplanationCard(
+    "Unified Risk",
+    riskFormula,
+    riskRows,
+    isUrlResult ? "A combined evidence score from model, URL structure, and domain checks. It is not a probability." : "A combined score from this scanner's model and contextual evidence."
+  );
 
   container.innerHTML = `
     <!-- Top Threat Banner -->
@@ -313,17 +339,20 @@ function renderResult(container, data) {
         <p class="target-url">${escapeHtml(data.target)}</p>
       </div>
       <div class="banner-scores">
-        <div class="score-box" title="Unified Risk Score (0-100): Multi-modal synthesis of ML statistical probability and static contextual indicators">
+        <div class="score-box score-card-hover" tabindex="0" role="group" aria-label="Unified risk. Hover to view calculation.">
           <div class="score-value">${data.risk_score}</div>
           <div class="score-label">Unified Risk (0-100)</div>
+          ${riskCard}
         </div>
-        <div class="score-box" title="Prediction Likelihood (%): Machine learning model class probability for the predicted classification (${escapeHtml(predictionLikelihoodLabel)})">
+        <div class="score-box score-card-hover" tabindex="0" role="group" aria-label="${escapeHtml(predictionLikelihoodLabel)}. Hover to view calculation.">
           <div class="score-value">${predictionLikelihoodVal}%</div>
           <div class="score-label">${escapeHtml(predictionLikelihoodLabel)}</div>
+          ${modelCard}
         </div>
-        <div class="score-box" title="Static URL signals (0-100): IP host, suspicious terms, deep subdomains, missing HTTPS, and unranked domain reputation.">
+        <div class="score-box score-card-hover" tabindex="0" role="group" aria-label="Contextual risk. Hover to view calculation.">
           <div class="score-value">${contextScoreVal}</div>
           <div class="score-label">Contextual Risk (0-100)</div>
+          ${contextCard}
         </div>
       </div>
     </div>
@@ -471,8 +500,10 @@ async function viewHistoryDetail(recordId) {
         document.querySelector('[data-tab="file-tab"]').click();
         renderResult(document.getElementById("fileResultContainer"), data);
       } else {
-        document.querySelector('[data-tab="message-tab"]').click();
-        renderResult(document.getElementById("messageResultContainer"), data);
+        document.querySelector('[data-tab="history-tab"]').click();
+        const detailContainer = document.getElementById("historyDetailContainer");
+        renderResult(detailContainer, data);
+        detailContainer.style.display = "block";
       }
     }
   } catch (err) {
