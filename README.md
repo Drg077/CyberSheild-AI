@@ -4,9 +4,8 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green.svg)](https://fastapi.tiangolo.com/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.4+-orange.svg)](https://scikit-learn.org/)
 [![SHAP](https://img.shields.io/badge/XAI-SHAP-red.svg)](https://shap.readthedocs.io/)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)]()
 
-Academic major project prototype implementing an AI-driven cyber threat prediction and prevention system for digital banking users, featuring specialized machine-learning detectors (URL Phishing, Static PE Malware, and GenAI Message Content), a learned Risk Fusion Engine, and Explainable AI (SHAP & token highlight attributions).
+Academic major-project prototype for cyber-threat analysis in a digital-banking context. The current web dashboard provides URL threat analysis, static PE-file analysis, analysis history, and model/XAI metrics. The backend also retains message-content and download-metadata analysis APIs; message scanning is not currently exposed as a dashboard tab. URL scoring combines model output with URL and domain evidence, and results include explainable score breakdowns.
 
 ---
 
@@ -15,62 +14,45 @@ Academic major project prototype implementing an AI-driven cyber threat predicti
 ```
                                       USER / CLIENT
                                             │
-                      ┌─────────────────────┼─────────────────────┐
-                      ▼                     ▼                     ▼
-              URL Threat Scanner   Static PE File Scanner   Message Threat Scanner
-                      │                     │                     │
-                      ▼                     ▼                     ▼
-            URL Feature Extraction    PE Header Parsing    Message Stylometrics & NLP
-          (20 Lexical Features)     (53 Header Fields)     (24 Features + DistilBERT)
-                      │                     │                     │
-                      ▼                     ▼                     ▼
-           Phishing Classifier      Malware Classifier     GenAI Message Detector
-          (Random Forest Model)    (Random Forest Model)   (Stylometric + Transformer)
-                      │                     │                     │
-                      └─────────────────────┼─────────────────────┘
-                                            │
+                     ┌──────────────────────┴──────────────────────┐
+                     ▼                                             ▼
+              Web Dashboard                                 Browser Extension
+        URL + Static PE Scanners                         (URL inspection client)
+                     │                                             │
+                     └──────────────────────┬──────────────────────┘
                                             ▼
-                                  RISK SCORING BY INPUT
-       URL: Model + URL Features + Domain Evidence | Other: Modality Fusion
-                                            │
+                                      FastAPI Backend
+                 ┌──────────────────────────┼─────────────────────────┐
+                 ▼                          ▼                         ▼
+          URL Analysis API           Static PE API             Other APIs
+          URL features + ML          PE header parser       Message + download
+          RDAP / DNS / TLS            Malware model          metadata analysis
+                 └──────────────────────────┼─────────────────────────┘
                                             ▼
-                                 SEVERITY CLASSIFICATION
-                   URL: [0-29 Low] [30-49 Med] [50-89 High] [90-100 Crit]
+                             Scoring, Decisions & Explanations
+                        Unified risk + likelihood + context scores
                                             │
-                      ┌─────────────────────┴─────────────────────┐
-                      ▼                                           ▼
-               SECURITY DECISION                        EXPLAINABLE AI (XAI)
-           (ALLOW / CAUTION / WARN / BLOCK)          (SHAP & Span Attributions)
-                      │                                           │
-                      └─────────────────────┬─────────────────────┘
-                                            │
-                                            ▼
-                               EXPLANATION & RECOMMENDATION
-                             (Plain-English Banking Guidance)
-                                            │
-                      ┌─────────────────────┴─────────────────────┐
-                      ▼                                           ▼
-                WEB DASHBOARD                             AUDIT HISTORY DB
-           (Interactive Visualizer)                     (SQLite & SQLAlchemy)
-                      ▲
-                      │
-           CHROME BROWSER EXTENSION
-          (Pre-Navigation Alert MV3)
+                     ┌──────────────────────┴──────────────────────┐
+                     ▼                                             ▼
+             Web Dashboard                              SQLite Audit History
+        Results, score breakdowns,                   Past analysis records
+          metrics and recommendations
 ```
 
 ---
 
 ## 2. Core Features & Scientific Rigor
 
-- **Multi-Modal Detection Pipeline:** Three dedicated inspection pipelines covering URLs, executable binaries (PE files), and communication/email messages.
-- **GenAI & Human Phishing Message Detector:** Identifies AI-synthesized lures (GPT-4o style) and human social engineering using 24 stylometric features and transformer token attributions.
-- **Learned Risk Fusion:** Interpretable Logistic Regression meta-classifier for supported non-URL modality scoring, with fallback to weighted baselines. URL scoring uses its evidence-based policy described below.
+- **Dashboard scanners:** URL threat analysis and static Windows PE executable analysis. The manual Message Threat Scanner tab was removed from the dashboard.
+- **Additional backend analysis APIs:** Message/email content analysis and download-metadata analysis remain available as API capabilities; they are not currently presented as dashboard scanning tabs.
+- **Message analysis pipeline:** The retained backend pipeline supports stylometric and transformer-based message analysis and span attributions when its models and dependencies are installed.
+- **Risk scoring:** URL scoring uses its evidence-based policy described below. File, message, and download analyses use their modality-specific model and contextual signals.
 - **URL Domain Verification:** Checks registration metadata through RDAP, DNS resolution, and HTTPS certificate validity/expiry. It does not load the submitted webpage, and these checks do not certify that its content is safe.
 - **Evidence-Based URL Risk:** Unified URL Risk combines the phishing model, URL signals, and supporting domain evidence. A confirmed threat-intelligence match sets a minimum score of 90.
 - **Formal Feature Contracts:** Enforces 100% schema alignment (`Training Schema == Inference Schema`) across URL (`v1.0.0`), PE (`v1.0.0`), and Message (`v1.0.0`) inputs.
 - **Zero In-Execution Risks:** Analyses URLs statically without navigation; parses Windows PE headers statically with `pefile`; inspects messages without executing active scripts.
-- **Explainable AI (SHAP & Span Highlights):** Computes exact feature attributions and visual token highlights, translated into human-readable banking security guidance.
-- **Chrome Browser Extension (MV3):** Connects to the centralized backend API for pre-navigation inspection and on-page warning banners.
+- **Explainable AI (SHAP & score breakdowns):** URL result score cards reveal their calculation details on hover or keyboard focus. Model explanations and message span highlights are supported by applicable analysis pipelines.
+- **Chrome Browser Extension (MV3):** A separate browser client connects to the backend for URL inspection and warnings. Extension packaging and browser permissions are configured in `browser_extension/manifest.json`.
 
 ---
 
@@ -151,15 +133,20 @@ python run.py
 - **Interactive API Docs (Swagger):** [http://localhost:8000/docs](http://localhost:8000/docs)
 - **API Health Check:** [http://localhost:8000/api/v1/health](http://localhost:8000/api/v1/health)
 
+The dashboard's current navigation includes URL Threat Scanner, Static PE Malware Scanner, Analysis History, and AI Models & XAI Metrics. There is no manual message-scanning tab. Message analyses may still appear in existing history records and can be inspected from History.
+
 ---
 
 ## 4. API Endpoints
 
 - `POST /api/v1/analyze/url` — Analyzes URL features and returns model likelihood, combined risk, threat-intelligence result, domain reputation, and registration/DNS/TLS evidence when available.
 - `POST /api/v1/analyze/file` — Statically inspects a PE binary (.exe, .dll, .sys) for malicious anomalies.
-- `POST /api/v1/analyze/message` — Analyzes message/email text for GenAI-synthesized and social engineering phishing.
+- `POST /api/v1/analyze/download` — Evaluates download metadata such as filename, extension, source URL, and direct download URL. It does not accept raw file bytes.
+- `POST /api/v1/analyze/message` — Backend/API capability for message/email text analysis. The dashboard's manual Message Threat Scanner has been removed.
 - `GET /api/v1/health` — System status, schema versions, and model loading indicators.
 - `GET /api/v1/history` — Audit trail of past threat predictions and risk assessments.
+- `GET /api/v1/history/{record_id}` — Retrieves a saved analysis result.
+- `DELETE /api/v1/history` — Clears saved analysis history.
 
 ---
 
@@ -178,7 +165,7 @@ python run.py
 
 ## 6. Automated Testing Suite
 
-Execute the complete automated test suite:
+Run the automated test suite:
 ```bash
 python -m pytest tests/ -v
 ```
@@ -188,7 +175,7 @@ python -m pytest tests/ -v
 - `tests/test_models/`: Model serialization integrity and recall bounds.
 - `tests/test_risk_engine/`: Boundary threshold clamping, context heuristics, and learned fusion logic.
 - `tests/test_explainable_ai/`: SHAP tree explainer attributions and token/span highlights.
-- `tests/test_api/`: URL, file upload, message scanner, health, and history endpoints.
+- `tests/test_api/`: URL, file upload, message API, health, and history endpoints.
 - `tests/test_adversarial/`: Homograph, subdomain injection, path padding, and message synonym perturbation tests.
 - `tests/test_integration.py`: End-to-end multi-modal demonstration scenarios.
 
@@ -202,8 +189,8 @@ All performance values reflect evaluation on unseen stratified test sets (zero f
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **Phishing Model** | Random Forest | PhiUSIIL Phishing URL Dataset (UCI) | 8,512 | **93.02%** | **94.30%** | **91.71%** | **0.9298** | **0.9811** | **238 / 8,512** |
 | **Malware Model** | Random Forest PE Detector | ClaMP Static PE Headers | 684 | **99.27%** | **99.68%** | **98.73%** | **0.9920** | **0.9998** | **1 / 684** |
-| **GenAI Message Model** | Stylometric + DistilBERT | Opara GPT-4o + Nazario + Enron | TBD | **TBD** | **TBD** | **TBD** | **TBD** | **TBD** | **TBD** |
-| **Learned Risk Fusion** | Logistic Meta-Classifier | Multi-modal Held-out Splits | TBD | **TBD** | **TBD** | **TBD** | **TBD** | **TBD** | **TBD** |
+| **Message Analysis Pipeline** | Stylometric + DistilBERT (backend/API capability) | Opara GPT-4o + Nazario + Enron | TBD | **TBD** | **TBD** | **TBD** | **TBD** | **TBD** | **TBD** |
+| **Learned Risk Fusion** | Logistic Meta-Classifier (where configured) | Multi-modal Held-out Splits | TBD | **TBD** | **TBD** | **TBD** | **TBD** | **TBD** | **TBD** |
 
 ---
 
@@ -212,8 +199,8 @@ All performance values reflect evaluation on unseen stratified test sets (zero f
 ```
 CyberSheild-AI/
 ├── backend/
-│   ├── api/             # FastAPI routes (health, url, file, message, history)
-│   ├── schemas/         # Pydantic data contracts
+│   ├── api/             # FastAPI routes (health, URL, file, message, download, history)
+│   ├── schemas/         # Pydantic request and response contracts
 │   ├── services/        # Pipeline orchestration & threat service
 │   ├── config.py        # System configuration & risk weights
 │   └── main.py          # FastAPI application & static mount
