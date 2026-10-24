@@ -61,6 +61,7 @@ class ThreatAnalysisResponse(BaseModel):
     final_assessment: Optional[str] = None
     evidence_breakdown: Optional[Dict[str, Any]] = None
     risk_score_breakdown: Optional[Dict[str, Any]] = None
+    history_saved: Optional[bool] = None
 
 class HistoryItemResponse(BaseModel):
     id: str

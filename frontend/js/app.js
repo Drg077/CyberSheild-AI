@@ -280,6 +280,9 @@ function renderResult(container, data) {
   const contextScoreVal = ((data.context_score != null ? data.context_score : 0.0) * 100).toFixed(1);
   const scoreBreakdown = data.risk_score_breakdown || {};
   const isUrlResult = data.input_type === "URL";
+  const historyNotice = data.input_type === "FILE" && data.history_saved === false
+    ? `<div class="action-disclaimer" role="status" style="margin: 12px 0;">The file was analyzed, but this result could not be saved to analysis history.</div>`
+    : "";
   const modelProbability = Number(scoreBreakdown.model_phishing_probability ?? data.probability ?? 0);
   const shownLikelihood = Number(scoreBreakdown.displayed_likelihood ?? data.prediction_likelihood ?? modelProbability);
   const contextRows = [
@@ -331,6 +334,7 @@ function renderResult(container, data) {
   );
 
   container.innerHTML = `
+    ${historyNotice}
     <!-- Top Threat Banner -->
     <div class="threat-banner severity-${sevLower}">
       <div class="banner-content">

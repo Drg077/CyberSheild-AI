@@ -46,6 +46,26 @@ from backend.services.domain_verification_service import domain_verification_ser
 
 logger = logging.getLogger(__name__)
 
+
+class AnalysisModelUnavailableError(RuntimeError):
+    """Raised when an analysis model is required but its artifact is unavailable."""
+
+
+def _persist_analysis(db: Session, record: Dict[str, Any]) -> bool:
+    """Persist history when possible without discarding a completed analysis."""
+    try:
+        ThreatAnalysisRepository(db).create(record)
+        return True
+    except Exception:
+        # A read-only/full database or transient SQLite lock must not hide the
+        # malware verdict already computed for the user.
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        logger.exception("Could not save analysis history; returning the analysis result without history.")
+        return False
+
 # Pre-load champion models with graceful handling
 PHISHING_MODEL = None
 MALWARE_MODEL = None
@@ -292,13 +312,21 @@ class ThreatService:
         """
         Executes end-to-end Static PE Malware prediction pipeline.
         """
+        features_df = PEFeatureContract.validate_and_align(features_df)
         features_dict = features_df.iloc[0].to_dict()
         
         # 1. Machine learning inference
-        if MALWARE_MODEL is not None:
-            malware_prob = float(MALWARE_MODEL.predict_proba(features_df.values)[0, 1])
-        else:
-            malware_prob = 0.50
+        if MALWARE_MODEL is None:
+            raise AnalysisModelUnavailableError("Malware detection model is unavailable.")
+        if not hasattr(MALWARE_MODEL, "predict_proba"):
+            raise AnalysisModelUnavailableError("Malware detection model does not support probability inference.")
+        classes = list(getattr(MALWARE_MODEL, "classes_", []))
+        if 1 not in classes:
+            raise AnalysisModelUnavailableError("Malware model has no malicious class (class 1).")
+        malware_class_index = classes.index(1)
+        malware_prob = float(MALWARE_MODEL.predict_proba(features_df)[0, malware_class_index])
+        if not 0.0 <= malware_prob <= 1.0:
+            raise ValueError("Malware model returned an invalid probability.")
         prediction_label = "Malicious" if malware_prob >= 0.50 else "Benign"
         
         # 2. Contextual evidence & Risk Engine
@@ -310,7 +338,11 @@ class ThreatService:
         )
         
         # 3. Explainable AI (SHAP)
-        attributions = malware_explainer.explain(features_df, top_k=5)
+        try:
+            attributions = malware_explainer.explain(features_df, top_k=5)
+        except Exception:
+            logger.exception("Malware explanation failed; returning the model prediction without SHAP details.")
+            attributions = []
         formatted_xai = ExplanationFormatter.format_pe_explanation(
             attributions=attributions,
             prediction_label=prediction_label,
@@ -357,8 +389,7 @@ class ThreatService:
             "feature_schema_version": PEFeatureContract.SCHEMA_VERSION
         }
         
-        repo = ThreatAnalysisRepository(db)
-        repo.create(db_record)
+        history_saved = _persist_analysis(db, db_record)
         
         return ThreatAnalysisResponse(
             id=record_id,
@@ -382,7 +413,8 @@ class ThreatService:
             detector_probabilities={"p_malware": round(malware_prob, 4), "context_score": round(ctx_score, 4)},
             context_score=round(ctx_score, 4),
             prediction_likelihood=pred_likelihood,
-            prediction_likelihood_label=pred_label
+            prediction_likelihood_label=pred_label,
+            history_saved=history_saved
         )
 
     @classmethod
